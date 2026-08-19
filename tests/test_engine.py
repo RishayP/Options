@@ -315,3 +315,24 @@ def test_leave_out_best_year_drops_the_year_from_the_baseline_too():
     assert abs(d.effect_leave_out_best_year) < abs(r.effect) * 0.6
     assert _gate(r.gates(), "leave_out_best_year_keeps") is False
     assert r.verdict() == "FAIL"
+
+
+def test_bootstrap_ci_is_on_the_effect_not_the_conditional_mean():
+    """The report prints this interval next to EFFECT, so it must bracket the
+    effect. Bootstrapping the conditional sample alone gives an interval around
+    cond_mean, which excludes the effect whenever the baseline is non-zero."""
+    idx = pd.bdate_range("2000-01-03", periods=1500)
+    rng = np.random.default_rng(11)
+    r = pd.Series(rng.normal(0.0004, 0.01, len(idx)), index=idx)   # drifting up
+    trig = pd.Series(False, index=idx)
+    trig.iloc[100::17] = True
+    r[trig] += 0.004
+    px = pd.Series(100 * np.exp(np.cumsum(r.to_numpy())), index=idx)
+
+    res = es.run(px, trig, horizon=3, name="ci_check", holdout_frac=0.0,
+                 n_perm=300, seed=3)
+
+    assert res.uncond_mean != 0, "baseline must be non-zero or the bug is invisible"
+    assert res.boot_lo <= res.effect <= res.boot_hi, (
+        f"effect {res.effect} outside its own CI [{res.boot_lo}, {res.boot_hi}]"
+    )

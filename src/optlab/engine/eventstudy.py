@@ -245,9 +245,17 @@ def run(
     _, perm_p, _ = inf.block_permutation_test(
         y.to_numpy(), trig_ok.to_numpy(), block=max(2, horizon), n_draws=n_perm, seed=seed
     )
+    # Bootstrap the CONDITIONAL mean, then shift by the unconditional mean so
+    # the interval is on `effect` -- which is what the report prints next to it
+    # and what 3.8 judges. Bootstrapping `cond` alone yields an interval around
+    # cond_mean, which does not contain `effect` and reads as a contradiction.
+    # Treating uncond_mean as fixed is deliberate: it is estimated from every
+    # bar in the window, two orders of magnitude more data than the events.
     _, blo, bhi = inf.stationary_bootstrap_ci(
         cond.to_numpy(), mean_block=max(2, horizon), seed=seed
     )
+    _u = float(uncond.mean())
+    blo, bhi = blo - _u, bhi - _u
     spos, sn, sp = inf.sign_test(cond.to_numpy(), float(uncond.median()))
     mde = inf.min_detectable_effect(ncl, float(uncond.std()))
 
