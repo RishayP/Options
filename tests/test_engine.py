@@ -336,3 +336,19 @@ def test_bootstrap_ci_is_on_the_effect_not_the_conditional_mean():
     assert res.boot_lo <= res.effect <= res.boot_hi, (
         f"effect {res.effect} outside its own CI [{res.boot_lo}, {res.boot_hi}]"
     )
+
+
+def test_program_total_ignores_resolution_rows(tmp_path):
+    """4.3's correction divides by this number; finish() rows are resolutions,
+    not questions, and counting them doubles the denominator."""
+    from optlab.stats import trials as tr
+    p = tmp_path / "trials.jsonl"
+    k1 = tr.guard("H-A", {"h": 1}, path=p)
+    k2 = tr.guard("H-A", {"h": 2}, path=p)
+    k3 = tr.guard("H-B", {"h": 1}, path=p)
+    for k in (k1, k2, k3):
+        tr.finish(k, "complete", {}, path=p)
+
+    assert tr.count("H-A", path=p) == 2
+    assert tr.count("H-B", path=p) == 1
+    assert tr.program_total(path=p) == 3      # not 6

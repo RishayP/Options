@@ -116,8 +116,15 @@ def finish(key: str, outcome: str, headline: dict | None = None,
 
 
 def program_total(*, path: Path = TRIALS_PATH) -> int:
-    """Trials across every hypothesis -- the denominator for 4.3's correction."""
-    return len({(r["hypothesis_id"], r["key"]) for r in _load(path)})
+    """Trials across every hypothesis -- the denominator for 4.3's correction.
+
+    finish() appends resolution rows carrying an empty hypothesis_id and the
+    key they resolve. Counting those as trials doubles the denominator, which
+    silently doubles the severity of every correction downstream, so rows
+    without a hypothesis id are excluded.
+    """
+    return len({(r["hypothesis_id"], r["key"]) for r in _load(path)
+                if r["hypothesis_id"]})
 
 
 def summary(*, path: Path = TRIALS_PATH, budget: int = DEFAULT_BUDGET) -> str:
