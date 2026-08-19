@@ -1,0 +1,190 @@
+# Hypothesis spec -- Principles.md 2.7. Registered before any Stage-1 run (2.8).
+# Library entry: Hypotheses.md, DIR-01.
+#
+# The eight `trials` below are enumerated HERE, before the first run, because
+# PROGRAM.md fixes the budget at eight and 4.2's correction is meaningless if
+# the denominator is discovered afterwards.
+
+id: H-2026-001
+name: sigma_extreme_conditional_drift
+registered_utc: 2026-08-19T00:00:00Z
+batch: 2026Q3-B1
+status: REGISTERED
+
+rationale: >
+  When SPY falls far outside its own recent volatility, part of the selling
+  that follows is mechanical rather than informed. If mechanical flow dominates
+  the days after the shock, price is pushed below fair value and reverts. If
+  information dominates, the move continues. The two stories predict opposite
+  signs, so the test is informative whichever way it lands -- which is the main
+  reason this candidate is worth a trial at all.
+
+mechanism: >
+  Volatility-targeting funds, risk-parity books, and managed-futures programs
+  size positions as an inverse function of trailing realized volatility. A
+  large single-day move raises their volatility estimate and their mandates
+  require them to cut exposure over the following days, typically one to five.
+  Who is on the other side: they are, and they are selling because a mandate
+  compels it, not because they hold a view. That is the counterparty and the
+  constraint. The rival explanation is that the move is genuine repricing, in
+  which case there is no forced flow and no reversal. Note that the volatility
+  claim -- realized volatility stays elevated after a shock -- rests on
+  volatility clustering, which is far better established than either
+  directional story and is expected to survive even if both of those fail.
+
+trigger:
+  description: >
+    Evaluated on the close of day t from data available at that close. Two arms,
+    tested separately, never pooled. Sigma arm: the day's log return divided by
+    the annualized 20-day realized volatility computed through the PREVIOUS
+    close falls below -3. Gap arm: the open against the previous unadjusted
+    close differs by more than 1.5% in absolute value.
+  computable_pit: true
+  inputs: [spy_open, spy_close, spy_close_adj, spy_adj_factor]
+  rv_window: 20
+  rv_shift: 1        # trigger day excluded from its own volatility scale
+  arms:
+    sigma: {field: z,       op: "<", value: -3.0}
+    gap:   {field: abs_gap, op: ">", value: 0.015}
+
+estimation_universe: [SPY]
+trading_universe: [SPY]
+subgroup_check: >
+  Estimation and trading universe are the same single symbol, so 2.7's
+  subgroup requirement is satisfied trivially and provides no evidence. It is
+  therefore replaced by a stricter substitute, pre-committed here: the sigma
+  arm's effect must retain >= 60% of its magnitude with unchanged sign when
+  the sample is split at the median event date. A result carried by one half
+  of the history is not a result.
+
+entry_timing: >
+  Next session's close, t+1. Never the trigger close -- the engine enforces
+  this structurally (3.4), and the one-extra-bar delay gate is the leak
+  detector for any residual timing error.
+holding_period: >
+  Fixed horizon per trial: 1, 3, 5 or 10 trading days from t+1. No
+  discretionary exit exists at Stage 1; there is no position, only an outcome
+  measurement.
+exit_rule: >
+  Mechanical close at the end of the stated horizon. Stage 1 measures the
+  underlying premise, not a tradeable structure, so no stop or target applies.
+
+outcome_variable: >
+  Forward log return of SPY close_adj from t+1 to t+1+h for the directional
+  trials; annualized realized volatility over the same window for the
+  volatility trials; absolute forward log return for the magnitude trial.
+  Always conditional-minus-unconditional, never against zero (3.2).
+
+predicted_direction: >
+  Sigma arm, direction: SIGN NOT PRE-SPECIFIED, and this is a deliberate cost.
+  Forced deleveraging predicts a positive effect (reversal); the information
+  story predicts a negative one (continuation). The test is read two-sided and
+  the loss of power is accepted, because a one-sided prediction here would be
+  chosen after the fact. Volatility trials: POSITIVE, unambiguously -- forward
+  realized volatility should exceed the unconditional level. Gap arm: no
+  directional prediction is made at all. An absolute-value trigger is symmetric
+  in sign, so a signed conditional mean has no mechanism behind it; the gap arm
+  therefore tests volatility and magnitude only.
+
+prior_effect_size: >
+  Directional: if forced deleveraging is real and unarbitraged, a 5-day
+  reversal of roughly +0.5% to +1.5% conditional on z < -3. Expected to be
+  smaller than that, and possibly zero, given 30 years of capital entering
+  this trade. Volatility: forward RV5 elevated by 5 to 15 annualized vol
+  points, which is a large and mechanically likely effect.
+
+falsification: >
+  Each trial is dead if it fails any 3.8 gate as registered in
+  conf/settings.yaml. Explicitly: directional trials die if the effect is under
+  0.90% (3x the 0.30% round-trip placeholder), if the block-permutation p
+  exceeds 0.01, if |HAC t| is under 2.5, if removing the three largest events
+  costs more than half the magnitude, or if the sign flips under a one-bar
+  delay. Volatility trials die if the effect is under 3.0 annualized vol
+  points on the same cost logic. The hypothesis as a whole is dead if BOTH
+  directional arms fail; it survives in reduced form -- as a volatility
+  hypothesis and an exclusion filter on short-vol candidates, per the library
+  entry -- if only the volatility trials pass.
+
+data_required:
+  - SPY daily OHLCV, unadjusted, with adjustment factors, 1993-01-29 onward (ingested)
+  - No paid data. Stage 2 would require SPY option chains, but only if a trial survives.
+
+known_confounds:
+  - Extreme down days cluster inside crises, so the conditional mean is exposed to
+    October 2008 and March 2020 in particular. The top-3-removal and
+    leave-out-best-year gates exist to catch exactly this and are expected to bind.
+  - Conditioning on a large move conditions on elevated volatility, which is
+    mean-reverting by construction; the volatility result is therefore partly
+    mechanical and is weak evidence of anything tradeable on its own.
+  - The reversal trade has been widely known for decades and is a prime
+    candidate for having been arbitraged away; a null result is the base case.
+  - The sigma and gap arms overlap on some dates, since a large gap often
+    produces a large daily move. They are counted and tested separately and
+    must not be pooled or treated as independent confirmations.
+  - SPY pays dividends; returns use close_adj while the gap uses unadjusted
+    closes, so the two features are deliberately built from different series.
+
+expected_decay: >
+  Moderate for the directional claim -- reversal has weakened as capital
+  entered, and any measured effect should be checked for monotonic decay across
+  decades before being believed. Low for the volatility claim: volatility
+  clustering is structural, not a crowded trade.
+
+capacity_estimate: >
+  Not capacity-constrained at any retail size. SPY short-dated verticals are
+  among the deepest options markets available; 8.11 puts the minimum viable
+  account for a 1-2 point SPY vertical at roughly $6,500-13,000, the cheapest
+  structure in that table. This is the reason DIR-01 is runnable before an
+  account size has been fixed, unlike EV-01.
+
+# Measured 2026-08-19 by the 2.9b pre-flight, NOT estimated (2.7). Full history.
+# The previously recorded 268/211 belonged to a |z| > 2.5 trigger that was never
+# specified -- see the measurement note in Hypotheses.md.
+sample_size_expected:
+  raw_events: 99
+  independent_clusters: 87
+  per_year: 3.0
+  measured_utc: 2026-08-19T00:00:00Z
+  measured_at_horizon: 5
+  arms:
+    sigma:
+      raw_events: 99
+      independent_clusters: 87
+      collapse_ratio: 1.14
+      research_window: {raw_events: 67, independent_clusters: 60}
+    gap:
+      raw_events: 288
+      independent_clusters: 165
+      collapse_ratio: 1.75
+      research_window: {raw_events: 198, independent_clusters: 111}
+
+structure: >
+  Not yet chosen; 5 selects it only if a trial survives. Indicative per the
+  library entry: reversal implies a short put spread at 7-21 DTE, continuation
+  a put debit spread, and a volatility-only result implies a long straddle or,
+  more likely, an exclusion filter applied to short-volatility candidates.
+
+slice_plan: {stage1: STAGE1, stage2: HOLDOUT}
+
+# ---------------------------------------------------------------------------
+# The eight trials. PROGRAM.md permits no ninth. Directional outcomes are
+# tested ONLY on the one-sided sigma arm, because a signed prediction from an
+# absolute-value trigger has no mechanism behind it.
+# ---------------------------------------------------------------------------
+trials:
+  - name: sigma_h1_logret
+    params: {arm: sigma, horizon: 1, outcome: logret}
+  - name: sigma_h3_logret
+    params: {arm: sigma, horizon: 3, outcome: logret}
+  - name: sigma_h5_logret
+    params: {arm: sigma, horizon: 5, outcome: logret}
+  - name: sigma_h5_fwdrv
+    params: {arm: sigma, horizon: 5, outcome: fwd_rv}
+  - name: sigma_h10_fwdrv
+    params: {arm: sigma, horizon: 10, outcome: fwd_rv}
+  - name: gap_h5_fwdrv
+    params: {arm: gap, horizon: 5, outcome: fwd_rv}
+  - name: gap_h10_fwdrv
+    params: {arm: gap, horizon: 10, outcome: fwd_rv}
+  - name: gap_h5_abslogret
+    params: {arm: gap, horizon: 5, outcome: abs_logret}

@@ -1,0 +1,171 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/rishaypuri/Options/specs/schema/spec.schema.json",
+  "title": "Hypothesis spec",
+  "description": "Principles.md 2.7. The required list is verbatim from 2.7 and is the source of truth for optlab.specs.load (11.5: code implements the spec). Missing OR empty required fields fail; an empty string, empty list or null is not a registered field. Extra keys are permitted -- the point of this file is completeness, not prohibition.",
+
+  "type": "object",
+  "additionalProperties": true,
+
+  "required": [
+    "id",
+    "name",
+    "registered_utc",
+    "rationale",
+    "mechanism",
+    "trigger",
+    "estimation_universe",
+    "trading_universe",
+    "subgroup_check",
+    "entry_timing",
+    "holding_period",
+    "exit_rule",
+    "outcome_variable",
+    "predicted_direction",
+    "prior_effect_size",
+    "falsification",
+    "data_required",
+    "known_confounds",
+    "expected_decay",
+    "capacity_estimate",
+    "sample_size_expected"
+  ],
+
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+      "description": "Registry key. Retries take a suffix (H-2026-007-r1, 7.x); the original is never edited in place."
+    },
+    "name": {"type": "string", "minLength": 1},
+    "registered_utc": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}([T ][0-9]{2}:[0-9]{2}(:[0-9]{2})?(\\.[0-9]+)?(Z|[+-][0-9]{2}:?[0-9]{2})?)?$",
+      "description": "ISO-8601. Pre-registration is meaningless without a timestamp that predates the run."
+    },
+
+    "rationale": {"type": "string", "minLength": 1},
+    "mechanism": {
+      "type": "string",
+      "minLength": 1,
+      "description": "2.9a disqualifier: must name who is forced or compensated. No mechanism, no spec."
+    },
+
+    "trigger": {
+      "type": "object",
+      "required": ["computable_pit"],
+      "additionalProperties": true,
+      "properties": {
+        "description": {"type": "string"},
+        "computable_pit": {
+          "type": "boolean",
+          "description": "2.9a: a trigger needing revised data or a value from the future is disqualified. Stated explicitly so the claim is on the record and falsifiable."
+        },
+        "inputs": {"type": "array", "items": {"type": "string"}},
+        "threshold": {"type": "object"}
+      }
+    },
+
+    "estimation_universe": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"type": "string"},
+      "description": "Wide: estimate the effect where the sample is."
+    },
+    "trading_universe": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"type": "string"},
+      "description": "Narrow: trade it where the liquidity is."
+    },
+    "subgroup_check": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Mandatory (2.7). An effect that vanishes in the names you intend to trade is not tradeable."
+    },
+
+    "entry_timing": {"type": "string", "minLength": 1},
+    "holding_period": {"type": "string", "minLength": 1},
+    "exit_rule": {"type": "string", "minLength": 1},
+
+    "outcome_variable": {
+      "type": "string",
+      "minLength": 1,
+      "description": "2.9a: a scalar computable per event, or the idea is dead."
+    },
+    "predicted_direction": {"type": "string", "minLength": 1},
+    "prior_effect_size": {"type": ["string", "object"], "minLength": 1},
+
+    "falsification": {
+      "type": "string",
+      "minLength": 1,
+      "description": "A number that would make you abandon it. Written before the result exists, or it will be written after it."
+    },
+
+    "data_required": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+    "known_confounds": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+
+    "expected_decay": {"type": "string", "minLength": 1},
+    "capacity_estimate": {"type": "string", "minLength": 1},
+
+    "sample_size_expected": {
+      "type": "object",
+      "description": "2.7: must carry the MEASURED cluster count from the 2.9b pre-flight, not an estimate. A spec whose sample was never counted cannot be registered -- hence measured_utc is required.",
+      "required": ["raw_events", "independent_clusters", "per_year", "measured_utc"],
+      "additionalProperties": true,
+      "properties": {
+        "raw_events": {"type": "integer", "minimum": 0, "description": "The flattering number. Ignore it."},
+        "independent_clusters": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The real sample: events separated by more than ~1.4x the holding window. This powers every statistic (2.9b)."
+        },
+        "per_year": {"type": "number", "minimum": 0, "description": ">150/yr is a regime, not a signal."},
+        "measured_utc": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}([T ][0-9]{2}:[0-9]{2}(:[0-9]{2})?(\\.[0-9]+)?(Z|[+-][0-9]{2}:?[0-9]{2})?)?$",
+          "description": "When the count was actually run. An absent date means nobody counted."
+        }
+      }
+    },
+
+    "batch": {"type": "string"},
+    "status": {
+      "type": "string",
+      "enum": ["DRAFT", "REGISTERED", "STAGE1", "STAGE2", "PAPER", "LIVE", "RETIRED"],
+      "description": "2.10. One-directional except LIVE/PAPER -> RETIRED."
+    },
+    "structure": {"type": ["string", "object"]},
+    "slice_plan": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "stage1": {"type": "string", "enum": ["EXPLORE", "STAGE1", "HOLDOUT"]},
+        "stage2": {"type": "string", "enum": ["EXPLORE", "STAGE1", "HOLDOUT"]}
+      }
+    },
+
+    "trials": {
+      "type": "array",
+      "maxItems": 8,
+      "description": "The pre-enumerated trial configurations. PROGRAM.md (registered 2026-08-19) fixes the budget at 8 and requires the configurations be enumerated in the spec BEFORE the first run, so the multiple-testing denominator is fixed in advance rather than discovered afterwards (4.2). maxItems is that budget, mechanically.",
+      "items": {
+        "type": "object",
+        "required": ["name", "params"],
+        "additionalProperties": true,
+        "properties": {
+          "name": {"type": "string", "minLength": 1},
+          "params": {"type": "object", "description": "The question asked of the data. Keys here must match what optlab.stats.trials.guard() is handed."},
+          "rationale": {"type": "string"}
+        }
+      }
+    },
+
+    "retry_of": {"type": "string"},
+    "retry_cause": {"type": "string"},
+    "retry_prediction": {"type": "string"}
+  }
+}
