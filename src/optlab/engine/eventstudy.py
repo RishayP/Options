@@ -28,10 +28,45 @@ class Diagnostics:
     n_clusters: int
     collapse_ratio: float
     by_year: pd.DataFrame
+    by_regime: pd.DataFrame
     effect_drop_top3: float
     effect_leave_out_best_year: float
+    perm_p_leave_out_best_year: float
     effect_delayed_one_bar: float
     equity_curve: pd.Series
+
+
+class _NotEvaluated:
+    """A gate that could not be checked, e.g. no round-trip cost configured (3.8).
+
+    Falsy on purpose: verdict() is a plain all() over the gate values, and a
+    gate that silently passes when unconfigured is worse than no gate at all.
+    """
+
+    __slots__ = ()
+
+    def __bool__(self) -> bool:
+        return False
+
+    def __repr__(self) -> str:
+        return "NOT_EVALUATED"
+
+
+NOT_EVALUATED = _NotEvaluated()
+
+Gate = bool | _NotEvaluated
+
+
+def _retention(a: float, b: float) -> float:
+    """Fraction of baseline effect `b` that variant effect `a` retains (3.8).
+
+    A zero or non-finite baseline retains nothing measurable, so it scores 0.0
+    and fails every retention gate rather than passing on a ratio that was
+    never computed.
+    """
+    if not np.isfinite(a) or not np.isfinite(b) or b == 0:
+        return 0.0
+    return abs(a) / abs(b)
 
 
 @dataclass
@@ -57,33 +92,71 @@ class EventStudyResult:
     diagnostics: Diagnostics = field(repr=False, default=None)
 
     def gates(self, min_events=50, min_clusters=20, max_perm_p=0.01,
-              min_abs_t=2.5) -> dict[str, bool]:
-        """The 3.8 hard gates. All must pass before options work begins."""
+              min_abs_t=2.5, min_year_sign_frac=0.70, min_year_events=5,
+              min_regime_agree=2, roundtrip_cost=None,
+              cost_multiple=3.0, max_lob_perm_p=0.05) -> dict[str, Gate]:
+        """The 3.8 hard gates. All must pass before options work begins.
+
+        `roundtrip_cost` is a caller-supplied number (conf/settings.yaml), not a
+        constant: 11.5 says code implements the spec and holds no thresholds.
+        Left at None the cost gate reports NOT_EVALUATED, which is falsy.
+        """
         d = self.diagnostics
-        keep = lambda a, b: (abs(a) >= abs(b) * 0.0) if b == 0 else (abs(a) / abs(b))
+        sgn = np.sign(self.effect)
+
+        # cost gate: unconfigured means unknown, never "fine" (3.8)
+        if roundtrip_cost is None:
+            cost = NOT_EVALUATED
+        else:
+            cost = bool(np.isfinite(self.effect)
+                        and abs(self.effect) >= cost_multiple * abs(float(roundtrip_cost)))
+
+        # sign consistency, by year: only years carrying enough events vote (3.7)
+        voters = d.by_year[d.by_year["n"] >= min_year_events] if len(d.by_year) else d.by_year
+        if sgn == 0 or len(voters) == 0:
+            year_sign = NOT_EVALUATED if len(voters) == 0 else False
+        else:
+            year_sign = bool((np.sign(voters["effect"]) == sgn).mean() >= min_year_sign_frac)
+
+        # sign consistency, by trailing-RV tercile (3.7); no terciles, no verdict
+        rg = d.by_regime
+        if rg is None or len(rg) < 3:
+            regime_sign = NOT_EVALUATED
+        elif sgn == 0:
+            regime_sign = False
+        else:
+            regime_sign = bool(int((np.sign(rg["effect"]) == sgn).sum()) >= min_regime_agree)
+
         return {
-            "events>=%d" % min_events: self.n_events >= min_events,
-            "clusters>=%d" % min_clusters: self.n_clusters >= min_clusters,
-            "perm_p<=%.3g" % max_perm_p: np.isfinite(self.perm_p) and self.perm_p <= max_perm_p,
-            "|hac_t|>=%.1f" % min_abs_t: np.isfinite(self.hac_t) and abs(self.hac_t) >= min_abs_t,
-            "top3_removal_keeps_50%": (
-                np.isfinite(d.effect_drop_top3)
-                and np.sign(d.effect_drop_top3) == np.sign(self.effect)
-                and keep(d.effect_drop_top3, self.effect) >= 0.50
+            "events>=%d" % min_events: bool(self.n_events >= min_events),
+            "clusters>=%d" % min_clusters: bool(self.n_clusters >= min_clusters),
+            "effect>=%gx_roundtrip_cost" % cost_multiple: cost,
+            "perm_p<=%.3g" % max_perm_p: bool(np.isfinite(self.perm_p) and self.perm_p <= max_perm_p),
+            "|hac_t|>=%.1f" % min_abs_t: bool(np.isfinite(self.hac_t) and abs(self.hac_t) >= min_abs_t),
+            "same_sign_in>=%d%%_of_years" % round(min_year_sign_frac * 100): year_sign,
+            "same_sign_in>=%d_of_3_regimes" % min_regime_agree: regime_sign,
+            "top3_removal_keeps_50%": bool(
+                np.sign(d.effect_drop_top3) == sgn
+                and _retention(d.effect_drop_top3, self.effect) >= 0.50
             ),
-            "leave_out_best_year_keeps_60%": (
-                np.isfinite(d.effect_leave_out_best_year)
-                and keep(d.effect_leave_out_best_year, self.effect) >= 0.60
+            "leave_out_best_year_keeps_60%": bool(
+                np.sign(d.effect_leave_out_best_year) == sgn
+                and _retention(d.effect_leave_out_best_year, self.effect) >= 0.60
             ),
-            "one_bar_delay_keeps_70%": (
-                np.isfinite(d.effect_delayed_one_bar)
-                and keep(d.effect_delayed_one_bar, self.effect) >= 0.70
+            "leave_out_best_year_perm_p<=%.2g" % max_lob_perm_p: (
+                NOT_EVALUATED if not np.isfinite(d.perm_p_leave_out_best_year)
+                else bool(d.perm_p_leave_out_best_year <= max_lob_perm_p)
+            ),
+            "one_bar_delay_keeps_70%": bool(
+                np.sign(d.effect_delayed_one_bar) == sgn
+                and _retention(d.effect_delayed_one_bar, self.effect) >= 0.70
             ),
         }
 
     def verdict(self, **kw) -> str:
         g = self.gates(**kw)
-        return "PASS" if all(g.values()) else "FAIL"
+        # bool() so NOT_EVALUATED counts as not passing, never as a pass
+        return "PASS" if all(bool(v) for v in g.values()) else "FAIL"
 
     def report(self, **kw) -> str:
         g = self.gates(**kw)
@@ -104,7 +177,10 @@ class EventStudyResult:
             "  3.8 gates:",
         ]
         for k, v in g.items():
-            lines.append(f"    [{'PASS' if v else 'FAIL'}] {k}")
+            mark = "NOT EVAL" if v is NOT_EVALUATED else ("PASS" if v else "FAIL")
+            lines.append(f"    [{mark:^8}] {k}")
+        if any(v is NOT_EVALUATED for v in g.values()):
+            lines.append("    (NOT EVAL = gate unconfigured or uncomputable; counts as not passing)")
         lines.append(f"\n  VERDICT: {self.verdict(**kw)}")
         return "\n".join(lines)
 
@@ -175,7 +251,8 @@ def run(
     spos, sn, sp = inf.sign_test(cond.to_numpy(), float(uncond.median()))
     mde = inf.min_detectable_effect(ncl, float(uncond.std()))
 
-    diag = _diagnostics(px, trig, y, trig_ok, cond, uncond, effect, horizon, outcome)
+    diag = _diagnostics(px, trig, y, trig_ok, cond, uncond, effect, horizon, outcome,
+                        n_perm=n_perm, seed=seed)
 
     return EventStudyResult(
         name=name, horizon=horizon,
@@ -189,7 +266,8 @@ def run(
     )
 
 
-def _diagnostics(px, trig, y, trig_ok, cond, uncond, effect, horizon, outcome) -> Diagnostics:
+def _diagnostics(px, trig, y, trig_ok, cond, uncond, effect, horizon, outcome,
+                 n_perm: int = 10_000, seed: int = 0) -> Diagnostics:
     base = float(uncond.mean())
 
     # per-year breakdown
@@ -201,6 +279,25 @@ def _diagnostics(px, trig, y, trig_ok, cond, uncond, effect, horizon, outcome) -
                      "effect": float(sel.mean() - base)})
     by_year = pd.DataFrame(rows)
 
+    # regime buckets: trailing-RV terciles (3.7). shift(1) keeps the bucket
+    # strictly point-in-time -- it uses returns through the prior close only,
+    # so the trigger bar itself can never decide which regime it lands in.
+    rv = np.log(px).diff().rolling(20).std().shift(1) * np.sqrt(252)
+    rv_ev = rv.reindex(cond.index).dropna()
+    codes = None
+    if len(rv_ev) >= 3:
+        try:
+            codes = pd.qcut(rv_ev, 3, labels=False, duplicates="drop")
+        except ValueError:                       # degenerate RV, no tercile edges
+            codes = None
+    rg_rows = []
+    if codes is not None and codes.nunique() == 3:
+        for c, nm in enumerate(("low_rv", "mid_rv", "high_rv")):
+            sel = cond.loc[rv_ev.index[(codes == c).to_numpy()]]
+            rg_rows.append({"bucket": nm, "n": len(sel), "mean": float(sel.mean()),
+                            "effect": float(sel.mean() - base)})
+    by_regime = pd.DataFrame(rg_rows, columns=["bucket", "n", "mean", "effect"])
+
     # drop the three largest absolute contributors
     if len(cond) > 3:
         order = cond.sub(base).abs().sort_values(ascending=False)
@@ -209,13 +306,23 @@ def _diagnostics(px, trig, y, trig_ok, cond, uncond, effect, horizon, outcome) -
     else:
         drop3 = float("nan")
 
-    # leave out the single best year
+    # Leave out the single best year. The year is dropped from the baseline as
+    # well as from the events: leaving 2008 in the unconditional mean while
+    # removing it from the conditional one measures a difference between two
+    # different samples, not the robustness 3.8 is asking about.
+    lobY, lob_p = float("nan"), float("nan")
     if len(by_year) > 1:
         best = by_year.loc[by_year["effect"].abs().idxmax(), "year"]
-        rest = cond[years != best]
-        lobY = float(rest.mean() - base) if len(rest) else float("nan")
-    else:
-        lobY = float("nan")
+        keep = y.index.year != best
+        y_lo, t_lo = y[keep], trig_ok[keep]
+        if t_lo.sum() >= 2 and (~t_lo).sum() >= 2:
+            lobY = float(y_lo[t_lo].mean() - y_lo.mean())
+            # 3.8 requires permutation p <= 0.05 on the leave-out sample too,
+            # not merely retained magnitude.
+            _, lob_p, _ = inf.block_permutation_test(
+                y_lo.to_numpy(), t_lo.to_numpy(),
+                block=max(2, horizon), n_draws=n_perm, seed=seed,
+            )
 
     # one-extra-bar delay: a leak detector, not a robustness nicety
     y_del = y.shift(-1)
@@ -229,8 +336,10 @@ def _diagnostics(px, trig, y, trig_ok, cond, uncond, effect, horizon, outcome) -
         n_clusters=inf.n_clusters(cond.index, horizon),
         collapse_ratio=inf.collapse_ratio(cond.index, horizon),
         by_year=by_year,
+        by_regime=by_regime,
         effect_drop_top3=drop3,
         effect_leave_out_best_year=lobY,
+        perm_p_leave_out_best_year=lob_p,
         effect_delayed_one_bar=delayed,
         equity_curve=equity,
     )
