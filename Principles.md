@@ -93,8 +93,8 @@ options/
 │   ├── universe.yaml            # tickers, listing/delisting dates, sector tags
 │   └── settings.yaml            # data root path, vendor keys via env var NAMES only
 ├── specs/                       # HYPOTHESIS SPECS — version controlled, no code
-│   ├── h001_vix9d_vix_inversion.yaml
-│   ├── h002_post_earnings_ivcrush.yaml
+│   ├── H-2026-001.yaml           # id is the filename; `name:` carries the slug
+│   ├── H-2026-002.yaml
 │   └── schema/spec.schema.json  # jsonschema; CI validates every spec against it
 ├── data/                        # gitignored entirely
 │   ├── raw/                     # immutable vendor payloads, exactly as downloaded
@@ -113,8 +113,8 @@ options/
 │   ├── engine/                  # signal eval, structure builder, fill model, PnL
 │   ├── stats/                   # bootstrap, multiple-testing, walk-forward
 │   └── scan/                    # live scanner: same spec objects, today's data
-├── results/                     # gitignored except results/index.jsonl
-│   └── <spec_hash>/
+├── results/                     # gitignored except results/index.jsonl + results/trials.jsonl
+│   └── <id>/<spec_hash>/<stage>/  # <stage> = stage1 | gauntlet | stage2 | holdout (see 11.3)
 │       ├── spec_snapshot.yaml   # byte copy of the spec that ran
 │       ├── manifest_ref.json    # data manifest hashes used
 │       ├── trades.parquet
@@ -127,7 +127,9 @@ options/
 **Why specs are YAML, not Python.** A hypothesis is data: entry condition, universe, structure, holding rule, exit. If it lives in code, you cannot diff two variants cleanly, you cannot enumerate the search space you tested (which you need for multiple-testing correction), and you cannot hash it. Keeping it declarative forces you to count every variant you tried — the single biggest defense against fooling yourself. Code interprets specs; code contains no thresholds.
 
 ```yaml
-# specs/h001_vix9d_vix_inversion.yaml
+# specs/H-2026-001.yaml — ILLUSTRATIVE FRAGMENT, not the schema.
+# Shown only to make the diffability and hashing argument concrete; the full
+# required-field list (22 fields, all mandatory) is defined in 2.7.
 id: h001
 universe: {file: conf/universe.yaml, group: liquid_etf}
 entry:
@@ -139,7 +141,7 @@ exit: {rules: [{type: time, days_held: 10}, {type: pnl_pct, take: 0.5, stop: -1.
 costs: {fill: mid_minus_edge, edge_frac_of_spread: 0.25}
 ```
 
-**Why results are content-addressed by spec hash.** `spec_hash = sha256(canonical_json(spec))` — sort keys, normalize numbers, exclude comments/`description`. Results write to `results/<spec_hash>/`. Consequences: editing a threshold produces a new directory rather than overwriting, so a result can never silently belong to a spec that no longer exists; a run whose hash directory already exists is skipped or must be `--force`d; `results/index.jsonl` (one line per run: hash, spec id, date, headline stats, git sha) is committed, giving you a permanent, greppable record of every variant tested — the denominator for your false-discovery correction.
+**Why results are content-addressed by spec hash.** `spec_hash = sha256(canonical_json(spec))` — sort keys, normalize numbers, exclude comments/`description`. Results write to `results/<id>/<spec_hash>/<stage>/` (11.3). Consequences: editing a threshold produces a new directory rather than overwriting, so a result can never silently belong to a spec that no longer exists; a run whose hash directory already exists is skipped or must be `--force`d; `results/index.jsonl` (one line per run: hash, spec id, date, headline stats, git sha) is committed, giving you a permanent, greppable record of every variant tested — the denominator for your false-discovery correction.
 
 ### 1.2 Data layers, in acquisition order
 
@@ -322,7 +324,7 @@ Reproducibility contract:
   scan:     ; uv run python -m optlab.scan.run --specs specs/ --date today
   ```
   `make data` is idempotent: it skips any (dataset, date-range) already covered by a passing manifest unless `FORCE=1`.
-- **Re-derivability.** A result is `(spec_hash, manifest content hashes, code git sha, package lock hash, seed)`. All five go in `results/<spec_hash>/env.json`. To reproduce: check out the git sha, `uv sync --frozen`, re-fetch or restore the datasets whose `content_sha256` matches, run `make backtest SPEC=results/<hash>/spec_snapshot.yaml`. If the output stats differ by more than floating-point noise, something in that tuple is misrecorded — treat it as a P0 bug, not a curiosity.
+- **Re-derivability.** A result is `(spec_hash, manifest content hashes, code git sha, package lock hash, seed)`. All five go in `results/<id>/<spec_hash>/<stage>/env.json`. To reproduce: check out the git sha, `uv sync --frozen`, re-fetch or restore the datasets whose `content_sha256` matches, run `make backtest SPEC=results/<id>/<spec_hash>/<stage>/spec_snapshot.yaml`. If the output stats differ by more than floating-point noise, something in that tuple is misrecorded — treat it as a P0 bug, not a curiosity.
 - **Vendor data drift.** Vendors restate history. Never overwrite a curated partition in place; write a new manifest and keep the old parquet under a `schema_version`/fetch-date suffix if the content hash changes. A result whose underlying data hash no longer exists is marked stale in `results/index.jsonl` and must be re-run before it can be cited.
 
 ---
@@ -423,7 +425,7 @@ Discipline: **one** regime variable per hypothesis, with the interaction directi
 
 ### 2.7 The Hypothesis Spec
 
-One YAML file per hypothesis at `hypotheses/H-YYYY-NNN.yaml`. Schema is validated by `scripts/validate_spec.py`; missing or empty required fields fail the commit.
+One YAML file per hypothesis at `specs/H-YYYY-NNN.yaml`. Schema is validated by `src/optlab/specs/validate.py`; missing or empty required fields fail the commit.
 
 ```yaml
 id: H-2026-007
@@ -510,18 +512,18 @@ Required fields, no exceptions: `id, name, registered_utc, rationale, mechanism,
 Philosophy does not stop you from moving a threshold after seeing a result. Tooling does.
 
 ```
-1. Write hypotheses/H-2026-007.yaml
-2. scripts/validate_spec.py  -> schema check, fails commit if incomplete
+1. Write specs/H-2026-007.yaml
+2. src/optlab/specs/validate.py  -> schema check, fails commit if incomplete
 3. git commit -m "register H-2026-007"
 4. spec_hash = sha256(canonical_yaml_bytes)   # sorted keys, normalized whitespace
 5. Backtest runner:
      h = sha256(spec_file)
      if h not in {hashes of this file in git log}: ABORT
      if commit_time(h) > now: ABORT
-     write results/H-2026-007/<spec_hash>/ with spec_hash + git HEAD in metadata
+     write results/H-2026-007/<spec_hash>/<stage>/ with spec_hash + git HEAD in metadata
 ```
 
-Implementation notes: compute the hash over a *canonicalized* dump (sorted keys, stripped comments) so formatting churn does not invalidate a spec. The runner walks `git log --follow -- hypotheses/H-2026-007.yaml`, hashes each blob version, and requires the working-tree hash to be in that set — meaning the exact spec you are testing was committed at some point *before* this run. A pre-commit hook rejects any commit that modifies a spec whose id already appears in `results/`, unless the spec's `id` is incremented (`H-2026-007b`) and the original is retired with a cause of death. Results directories are keyed by spec hash, so a changed spec cannot overwrite an old result — you get two results and an obvious paper trail of how many variants you tried. That count feeds the multiple-testing correction.
+Implementation notes: compute the hash over a *canonicalized* dump (sorted keys, stripped comments) so formatting churn does not invalidate a spec. The runner walks `git log --follow -- specs/H-2026-007.yaml`, hashes each blob version, and requires the working-tree hash to be in that set — meaning the exact spec you are testing was committed at some point *before* this run. A pre-commit hook rejects any commit that modifies a spec whose id already appears in `results/`, unless the spec's `id` is incremented (`H-2026-007b`) and the original is retired with a cause of death. Results directories are keyed by spec hash, so a changed spec cannot overwrite an old result — you get two results and an obvious paper trail of how many variants you tried. That count feeds the multiple-testing correction.
 
 ### 2.9 The Reality Gate: Disqualifiers, Sample Pre-Flight, Viability Screen
 
@@ -539,6 +541,7 @@ Three checks, all applied **before writing the spec**. Together they are the che
 | No falsification condition | You cannot state a number that would make you abandon it |
 | Data you don't have | Signed order flow, dealer inventories, full tick options data — and no budget for it |
 | Capacity below account size | Effect lives in options with <50 contracts daily volume or >15% spreads |
+| Minimum viable position exceeds risk budget | `R_1contract of the cheapest tradeable expression > r × Equity` — the mirror of the row above; see §8.11 |
 | Sample too small | Fewer than ~50 non-overlapping events available in all of history |
 | Already registered | Substantively identical to an existing registry entry, alive or dead |
 
@@ -612,7 +615,7 @@ Note H-2026-012: total clears 18, but a 1 on any axis is fatal. One event per ye
 
 ### 2.11 The Hypothesis Registry
 
-One file, `hypotheses/REGISTRY.md`, regenerated from the YAML specs plus results metadata by `scripts/build_registry.py`. Never hand-edited.
+One file, `specs/REGISTRY.md`, regenerated from the YAML specs plus results metadata by `src/optlab/specs/registry.py`. Never hand-edited.
 
 Statuses: `DRAFT → REGISTERED → STAGE1 → STAGE2 → PAPER → LIVE → RETIRED`. Movement is one-directional except `LIVE → RETIRED` and `PAPER → RETIRED`.
 
@@ -731,7 +734,7 @@ It is slower than vectorized code. Use it as the referee: vectorize for speed, t
 
 ### 3.5 Data splitting protocol
 
-Three-way, strictly chronological:
+Three-way, strictly chronological — the general recommendation; this program registered the two-way variant, see the note below the table:
 
 | Split | Example range | Purpose | Touch limit |
 |---|---|---|---|
@@ -740,6 +743,8 @@ Three-way, strictly chronological:
 | **Sealed holdout** | 2023-01-01 → present | Final confirmation | **Once, ever, per hypothesis** |
 
 Chronological is right for markets because the data-generating process is non-stationary and regimes are persistent: a random split trains you on the future of the same regime you test on. It also mirrors the only deployment you will ever have — past predicts future.
+
+**What *this* program registered.** The three-way split above is the general recommendation. `PROGRAM.md` at the repo root pre-registered the two-way variant — one research block plus the most recent **25%** of each series sealed, one look ever, per hypothesis — and the engine implements that. Where the two conflict, **`PROGRAM.md` governs**, because it is the pre-registered document and this one is not. Under the two-way split there is no separate validation block: variant selection happens inside the research block and is bounded by the registered trial budget (8 per hypothesis, §4.2) rather than by the ~5 evaluations above. Moving to three-way requires a dated amendment to `PROGRAM.md`, not an edit here.
 
 **Holdout discipline.** Before touching it, write the pass/fail criteria (§3.8) into a file and commit it. Then run once. If it fails, the hypothesis is dead — you do not tweak and re-run. If you do re-run, that period is permanently burned; move the holdout boundary forward and wait for new data. Log every holdout touch in a `holdout_log.md` with date, hypothesis ID, and result. This log is the only thing standing between you and slow-motion overfitting.
 
@@ -807,7 +812,7 @@ The cumulative curve on *event index* is the highest-information plot in the who
 
 ### 3.8 Stage 1 pass/fail criteria
 
-Hard gates. All must pass on in-sample **and** validation before the holdout is unsealed.
+Hard gates. All must pass on the research data before the holdout is unsealed — under this program's registered two-way split (§3.5) that is the single in-sample block; under the three-way split, on exploration **and** validation alike.
 
 | Gate | Threshold |
 |---|---|
@@ -882,7 +887,7 @@ Schema — append-only, one JSON object per line, never edited:
 import json, hashlib, pathlib, datetime as dt
 import pandas as pd
 
-TRIALS = pathlib.Path("research/trials.jsonl")
+TRIALS = pathlib.Path("results/trials.jsonl")
 
 def spec_hash(spec: dict) -> str:
     blob = json.dumps(spec, sort_keys=True, separators=(",", ":")).encode()
@@ -1110,7 +1115,7 @@ d_min = sqrt(15.7 / 71) = 0.47   ->   MDE = 0.47 x 2.4 = 1.13 vol points
 
 The measured +0.62 vp sits *below* the MDE and so is itself unresolvable; it may be real. It does not matter, because it is a fifth of the cost gate. An effect too small to resolve and too small to pay the spread is closed permanently, not parked.
 
-**What is reusable.** (i) The Yang-Zhang RV estimator and HAR fit in `research/vol/har.py`, now the baseline forecast for VRP-01 and VT-01 — most of the value this hypothesis produced. (ii) The run-length-matched block permutation (§3.6 refinement i): naive permutation returned p = 0.008 here, the block version 0.14, a 17× difference that would have promoted a dead idea. (iii) Confirmation of the §2.9b general lesson — 1,165 raw events collapse ~14× to 86 clusters because elevated vol *persists*. State-based triggers are sample-poor by construction.
+**What is reusable.** (i) The Yang-Zhang RV estimator and HAR fit in `src/optlab/stats/har.py`, now the baseline forecast for VRP-01 and VT-01 — most of the value this hypothesis produced. (ii) The run-length-matched block permutation (§3.6 refinement i): naive permutation returned p = 0.008 here, the block version 0.14, a 17× difference that would have promoted a dead idea. (iii) Confirmation of the §2.9b general lesson — 1,165 raw events collapse ~14× to 86 clusters because elevated vol *persists*. State-based triggers are sample-poor by construction.
 
 **Successor question.** The state trigger fires throughout an episode and buys nothing beyond its first day. Does the *first crossing* of `RV5/RV60` through 2.0 — a point event, one per episode, ~86 of them — carry information the persistent state washes out? Registered as **H-2026-021** `rv_reversion_first_crossing`, inheriting these 11 trials as its starting `N` per §4.8.2. Pre-flight first: 86 clusters against an MDE of 1.03 vp is thin, and if the prior effect size cannot honestly be written above that number, do not register it.
 
@@ -1177,7 +1182,7 @@ revisit_condition:  # what new data or new mechanism would justify it
 
 1. **Location:** `results/<id>/<spec_hash>/postmortem.md`, under the hash of the *base* spec, so it is content-addressed alongside the run outputs it describes (§1.1).
 2. **Written before anything is deleted.** No branch, notebook, cached dataset, or results directory is removed until the post-mortem is committed (§4.8.5). Delete the artifacts, keep the finding.
-3. **The registry links to it.** `scripts/build_registry.py` fills `cause_of_death`, `successor_id`, and a `notes` link to the post-mortem path. A `RETIRED` row with no linked post-mortem is a build failure, not a warning.
+3. **The registry links to it.** `src/optlab/specs/registry.py` fills `cause_of_death`, `successor_id`, and a `notes` link to the post-mortem path. A `RETIRED` row with no linked post-mortem is a build failure, not a warning.
 4. **Cooling-off is 90 days** (§4.8.4), applied to the *idea*, not the id — re-registering the same trigger under a new name to dodge the clock is the same sin as silent re-specification. Revival then requires genuinely new data or a genuinely new mechanism, named in the new spec's `rationale`, and the new id inherits the dead one's trial count.
 5. **Review the death ledger before generating each batch** (§2.11). Post-mortems are what make that review say something.
 
@@ -2346,10 +2351,10 @@ A validated hypothesis is a research artifact. A tradeable strategy is a *proces
 
 The scanner is a scheduled job that, for every hypothesis registered as `live`, evaluates its trigger against current market data and emits an actionable alert or a logged non-fire.
 
-**The one rule that matters: one trigger implementation, imported by both the backtest engine and the scanner.** A re-implemented "live version" of the signal is a guaranteed source of divergence — off-by-one bar alignment, a different rolling window convention, a percentile computed on a different lookback. You will not find these by inspection; you will find them six months later as an unexplained 30% shortfall in trade count. Enforce it structurally: the engine and scanner both `import` from `hypotheses/`, and the scanner refuses to run any hypothesis whose spec hash differs from the hash recorded at validation.
+**The one rule that matters: one trigger implementation, imported by both the backtest engine and the scanner.** A re-implemented "live version" of the signal is a guaranteed source of divergence — off-by-one bar alignment, a different rolling window convention, a percentile computed on a different lookback. You will not find these by inspection; you will find them six months later as an unexplained 30% shortfall in trade count. Enforce it structurally: the engine and scanner both `import` from `src/optlab/specs/`, and the scanner refuses to run any hypothesis whose spec hash differs from the hash recorded at validation.
 
 ```python
-# hypotheses/h017_iv_rank_reversion.py  -- imported by BOTH engine and scanner
+# src/optlab/engine/triggers/h017_iv_rank_reversion.py  -- imported by BOTH engine and scanner
 SPEC_HASH = "e3f1a9..."   # sha256 of the frozen spec dict; see Section 2
 
 def trigger(ctx: Context) -> Signal | None:
@@ -2639,7 +2644,7 @@ If you do nothing else, do this — and note that **counting comes before specif
 2. Write the ingest and loader with the §1.4 assertions — including the **feed-liveness** check, which is separate from historical gap detection. Pull SPY, QQQ, IWM and the VIX complex to parquet, with a manifest.
 3. **Run the §2.9b sample-size pre-flight on every candidate in `Hypotheses.md` before writing any spec.** Count raw events and independent clusters. This takes minutes, touches no outcome, and burns no trial. Expect it to demote candidates you were confident about — that is the point.
 4. **Apply the §2.9c viability screen.** Discard anything whose effect is too small to clear an option bid/ask regardless of how good its statistics look, and anything whose trigger fires on more than roughly half of all sessions (that is a regime, not a signal).
-5. Write `research/eventstudy.py`: given trigger dates and a horizon, return the conditional outcome distribution, the unconditional baseline, and the permutation p-value. ~150 lines, and the single highest-leverage file in the repo.
+5. Write `src/optlab/engine/eventstudy.py`: given trigger dates and a horizon, return the conditional outcome distribution, the unconditional baseline, and the permutation p-value. ~150 lines, and the single highest-leverage file in the repo.
 6. Agree a **trial budget per hypothesis** and wire it into the runner before the first backtest — mandatory if anything automated is executing runs (§4.2).
 7. Write specs only for candidates that survived steps 3–4. Commit them. Note the hashes.
 8. Run stage 1. Expect most to fail or come back marginal. That is the correct outcome and it means your tests work.
@@ -2650,7 +2655,7 @@ A hypothesis is **DONE (tradeable)** when this table is fully green:
 
 | Artifact | Location | Gate |
 |---|---|---|
-| Registered spec, hash in git history | `hypotheses/H-YYYY-NNN.yaml` | §2.7–2.8 |
+| Registered spec, hash in git history | `specs/H-YYYY-NNN.yaml` | §2.7–2.8 |
 | Stage-1 diagnostic pack | `results/<id>/<spec_hash>/stage1/` | §3.8 thresholds met |
 | Overfitting scorecard | `results/<id>/<spec_hash>/gauntlet/` | §4.9 go |
 | Structure + Greek budget | spec `structure:` block + §5 worksheet | §5.9 edge Greek dominates |
@@ -2658,7 +2663,7 @@ A hypothesis is **DONE (tradeable)** when this table is fully green:
 | Promotion gauntlet table | `results/<id>/<spec_hash>/promotion.md` | §7.8 all rows pass |
 | Sealed-holdout exam, one run | `results/<id>/<spec_hash>/holdout.md` | §7.9 pass |
 | Kill-switch thresholds | spec `kill_switch:` block, added pre-live | §9.8 pre-registered |
-| Scanner entry | `live/scanner.py` registry | §9.1 shared trigger fn |
+| Scanner entry | `src/optlab/scan/scanner.py` registry | §9.1 shared trigger fn |
 | Paper trade log ≥ N trades | `journal/` | §9.2 minimum met |
 
 ### 11.4 The ten failure modes that end this project

@@ -23,3 +23,28 @@ validation:
   max_abs_daily_return: 0.35   # flag any bar implying a >35% move (split artifact)
   max_gap_days: 6              # calendar-day gap between consecutive sessions
   min_rows: 200
+
+# ---------------------------------------------------------------------------
+# Stage-1 gate thresholds (Principles.md 3.8). Registered here, not in code:
+# 11.5 -- "Code implements the spec; code contains no thresholds."
+# ---------------------------------------------------------------------------
+stage1_gates:
+  min_events: 50
+  min_clusters: 20
+  max_perm_p: 0.01
+  min_abs_hac_t: 2.5
+  top3_removal_retain: 0.50
+  leave_out_best_year_retain: 0.60
+  one_bar_delay_retain: 0.70
+  sign_consistent_year_frac: 0.70    # of years with >= min_events_per_year
+  min_events_per_year: 5
+  sign_consistent_regime_buckets: 2  # of 3 trailing-RV terciles
+  effect_vs_cost_multiple: 3.0
+
+# Round-trip cost placeholders used by the 3.8 effect-vs-cost gate, in the
+# units of the outcome variable. These are the 3.8 placeholders, NOT measured
+# values -- real ones require the P6 chain purchase. A candidate that only
+# clears the gate on optimistic costs has not cleared it.
+roundtrip_cost:
+  logret_directional_etf: 0.0030     # 0.30%, 3.8 directional placeholder
+  vol_points: 0.01                   # 1.0 vol point, annualized

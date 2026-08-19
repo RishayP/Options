@@ -25,7 +25,7 @@ The index. Statuses here are library statuses, not registry statuses — nothing
 | id | Candidate | Status | Pipeline position |
 |---|---|---|---|
 | **EV-01** | Single-name earnings IV crush | **ACTIVE** | §2.9 pre-flight passed. **Run first.** Write spec next; paid option data required earlier than any other candidate |
-| **DIR-01** | Behavior after vol-adjusted extreme moves and gaps | **ACTIVE** | §2.9 pre-flight passed (211 clusters). **Run first.** Write spec next; free data sufficient for Stage 1 |
+| **DIR-01** | Behavior after vol-adjusted extreme moves and gaps | **ACTIVE** | §2.9 pre-flight re-measured 2026-08-19 per arm: sigma arm 87 clusters, gap arm 165. **Run first.** Free data sufficient for Stage 1 |
 | **EV-02** | Scheduled macro vol cycle (FOMC/CPI) | **ACTIVE** | §2.9 pre-flight passed. Run second, after EV-01/DIR-01 |
 | **VRP-01** | Conditional short premium at wide IV–RV spread | **ACTIVE** | §2.9 pre-flight passed (259 clusters). Queued; sample fine, effect likely thin vs. costs |
 | **VT-01** | VIX9D/VIX ratio as short-horizon regime signal | **ACTIVE** | §2.9 pre-flight passed (166 clusters). Queued; short history (2011+) |
@@ -244,11 +244,16 @@ No active candidates. SK-01 is in `## Deferred`; SK-02 is in `## Rejected / Not 
 - **Mechanism:** Two rival mechanisms the test can separate. (a) Forced deleveraging: vol-target and risk-parity funds mechanically sell for 1-5 days after a vol shock, pushing price below fair value → reversal. (b) Information: the move is genuine repricing → continuation. Opposite signs, so the test is informative either way.
 - **Trigger:** `z = daily_return / (RV20/√252)`; condition on `z < −3`, and separately on overnight gap `|gap| > 1.5%`. Measure forward 1/3/5/10-day returns and forward RV.
 - **Predicted effect:** Non-zero conditional mean forward return, sign TBD, plus elevated forward RV regardless of sign — the vol claim is far likelier to survive than the direction claim.
-- **Stage-1 test:** Free SPY/`^GSPC` since 1993, ~100-200 `z < −3` events. Bootstrap the conditional mean against the unconditional distribution and split by date. Falsified if the mean sits inside the unconditional CI or flips sign across halves.
+- **Stage-1 test:** Free SPY since 1993, **99** `z < −3` events (87 independent clusters at h=5) and **288** `|gap| > 1.5%` events (165 clusters). Bootstrap the conditional mean against the unconditional distribution and split by date. Falsified if the mean sits inside the unconditional CI or flips sign across halves.
 - **Candidate structure:** Reversal → short put spread, 7-21 DTE; continuation → put debit spread; vol-only → long straddle or an exclusion filter on short-vol candidates.
 - **Data needed:** Free.
 - **Confounds:** Extreme down days cluster inside crises — perhaps 10-15 independent episodes, not 200 — so the conditional mean is dominated by March 2020 and October 2008. Buying after −3 sigma is the trade that works for years and then does not.
 - **Crowding & decay:** Moderate; reversal has weakened as capital entered, but forced deleveraging is structural and will not vanish.
+- **Measurement note (2026-08-19) — corrected sample counts.** This entry previously carried **268 raw events / 211 independent clusters** in the Prioritization table, and that figure was the main reason DIR-01 was ranked "run first". It is not the sample for the trigger stated above. Re-measuring reproduces 268 / 211 / 8.0-per-year exactly from **`|z| > 2.5`** — a *two-sided* condition at a *looser* threshold than the one-sided `z < −3` this entry specifies. The specified trigger yields **99 events / 87 clusters**, roughly one third as much.
+
+  Both arms still clear §3.8's 50-event and 20-cluster floors on the research window (67/60 and 198/111 respectively), so the candidate survives and the ranking does not change — the gap arm carries the larger sample. But the recorded number described a trigger nobody had written down, which is the §4.2 failure mode in miniature: a sample count measured on a variant that was never specified is not evidence about the specified variant. The counts above are now measured with the canonical definition registered in the spec — log returns on `close_adj`, `RV20` shifted one bar so the trigger day is excluded from its own volatility scale, and gaps against the previous *unadjusted* close.
+
+  Excluding the trigger day from its own RV window is worth stating explicitly because it is not cosmetic: including it collapses the `z < −3` count from **99 to 33**, since a large move inflates its own denominator.
 
 ---
 
@@ -323,7 +328,8 @@ Kept in full, permanently. Each entry retains its mechanism description so that 
 | id | Family | Data cost | Raw events | **Indep. clusters** | Events/yr | Verdict |
 |---|---|---|---|---|---|---|
 | EV-01 | B | Free dates, paid IV later | ~90/name | **~90/name × universe** | 4/name | **Run first** |
-| DIR-01 | F | Free | 268 | **211** | 8.0 | **Run first** |
+| DIR-01a | F | Free | 99 | **87** | 3.0 | **Run first** — `z < -3` arm |
+| DIR-01b | F | Free | 288 | **165** | 8.6 | **Run first** — `\|gap\| > 1.5%` arm; larger sample |
 | EV-02 | B | Free calendar | ~270 FOMC / ~400 CPI | ~270 / ~400 | 8 / 12 | Run second |
 | VRP-01 | A | Free | 2,776 | 259 | 83 | Sample fine, effect likely thin |
 | VT-01 | D | Free | 486 | 166 | 31 | Viable; short history (2011+) |
@@ -340,7 +346,7 @@ Kept in full, permanently. Each entry retains its mechanism description so that 
 **Run first: EV-01, DIR-01.** Then EV-02.
 
 - **EV-01 (earnings)** — the only candidate combining a large sample with an effect big enough to clear the bid/ask. Roughly 90 events per name back to 2002 on free data; across a liquid large-cap universe that is thousands of genuinely independent observations, since one company's report is unrelated to another's. The effect itself — implied vol collapsing once the announcement removes the uncertainty — is large and mechanical. This sits squarely in the middle band of the §2.9c viability screen.
-- **DIR-01 (vol-adjusted extreme moves)** — 268 events that resolve to **211 independent clusters**, a ratio near 1.0 because large moves are isolated point events rather than persistent states. The cleanest event-to-sample ratio of any candidate here, free, and genuinely two-sided so it cannot be talked into confirming itself.
+- **DIR-01 (vol-adjusted extreme moves)** — two arms, counted separately because they are separate claims. The `z < -3` arm is **99 events / 87 independent clusters**; the `|gap| > 1.5%` arm is **288 / 165**. Collapse ratios of 1.14x and 1.75x are the lowest in this file, because large moves are isolated point events rather than persistent states. Free, and genuinely two-sided so it cannot be talked into confirming itself. Run the gap arm first: it carries three times the sample and therefore the most margin over §3.8's 50-event floor.
 - **EV-02 (scheduled macro)** — moderate counts (~270 FOMC, ~400 CPI since 1993) but large, concentrated, precisely dated effects. Needs only a release calendar, which the Fed and BLS publish free.
 
 **Two demotions, both produced by measurement rather than argument:**
