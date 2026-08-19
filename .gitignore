@@ -1,0 +1,12 @@
+data/
+
+# results are large and regenerable -- except the audit trail, which is neither
+results/*
+!results/index.jsonl
+!results/trials.jsonl
+
+__pycache__/
+*.pyc
+.venv/
+.ipynb_checkpoints/
+.DS_Store

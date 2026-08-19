@@ -1,0 +1,12 @@
+# Point-in-time universe definitions. `added`/`removed` are inclusive listing
+# bounds; the loader asserts every backtest date falls inside them.
+groups:
+  liquid_etf:
+    - {symbol: SPY,  added: "1993-01-29", removed: null, sector: broad_index}
+    - {symbol: QQQ,  added: "1999-03-10", removed: null, sector: broad_index}
+    - {symbol: IWM,  added: "2000-05-26", removed: null, sector: broad_index}
+    - {symbol: TLT,  added: "2002-07-30", removed: null, sector: rates}
+    - {symbol: GLD,  added: "2004-11-18", removed: null, sector: commodity}
+    - {symbol: XLE,  added: "1998-12-22", removed: null, sector: energy}
+    - {symbol: XLF,  added: "1998-12-22", removed: null, sector: financials}
+    - {symbol: XLK,  added: "1998-12-22", removed: null, sector: technology}

@@ -1,0 +1,25 @@
+# Data root and ingest configuration. Vendor credentials are referenced by
+# ENV VAR NAME only -- never put a key in this file.
+data_root: data
+schema_version: 1
+
+sources:
+  yfinance:
+    enabled: true
+    api_key_env: null          # yfinance needs no key
+    rate_limit_sleep_s: 1.0
+
+datasets:
+  ohlcv_daily:
+    source: yfinance
+    start: "1990-01-01"
+    symbols: [SPY, QQQ, IWM, TLT, GLD, XLE, XLF, XLK]
+  vol_indices:
+    source: yfinance
+    start: "1990-01-01"
+    symbols: ["^VIX", "^VIX9D", "^VIX3M", "^VVIX", "^SKEW"]
+
+validation:
+  max_abs_daily_return: 0.35   # flag any bar implying a >35% move (split artifact)
+  max_gap_days: 6              # calendar-day gap between consecutive sessions
+  min_rows: 200
