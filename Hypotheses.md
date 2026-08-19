@@ -25,7 +25,7 @@ The index. Statuses here are library statuses, not registry statuses — nothing
 | id | Candidate | Status | Pipeline position |
 |---|---|---|---|
 | **EV-01** | Single-name earnings IV crush | **ACTIVE** | §2.9 pre-flight passed. **Run first.** Write spec next; paid option data required earlier than any other candidate |
-| **DIR-01** | Behavior after vol-adjusted extreme moves and gaps | **ACTIVE** | §2.9 pre-flight re-measured 2026-08-19 per arm: sigma arm 87 clusters, gap arm 165. **Run first.** Free data sufficient for Stage 1 |
+| **DIR-01** | Behavior after vol-adjusted extreme moves and gaps | **STAGE1 DONE** | Registered `H-2026-001`, all 8 trials run 2026-08-19, budget spent. **Directional claim dead (`NO_EFFECT`); volatility claim passed §3.8.** Survives in reduced form — see entry |
 | **EV-02** | Scheduled macro vol cycle (FOMC/CPI) | **ACTIVE** | §2.9 pre-flight passed. Run second, after EV-01/DIR-01 |
 | **VRP-01** | Conditional short premium at wide IV–RV spread | **ACTIVE** | §2.9 pre-flight passed (259 clusters). Queued; sample fine, effect likely thin vs. costs |
 | **VT-01** | VIX9D/VIX ratio as short-horizon regime signal | **ACTIVE** | §2.9 pre-flight passed (166 clusters). Queued; short history (2011+) |
@@ -255,6 +255,27 @@ No active candidates. SK-01 is in `## Deferred`; SK-02 is in `## Rejected / Not 
 
   Excluding the trigger day from its own RV window is worth stating explicitly because it is not cosmetic: including it collapses the `z < −3` count from **99 to 33**, since a large move inflates its own denominator.
 
+- **STAGE-1 RESULT (2026-08-19) — spec `H-2026-001`, spec_hash `18abe5ca6c83ed41`.** All eight pre-registered trials run; the trial budget is spent and PROGRAM.md permits no ninth. Research window only, 1993-01-29 → 2018-03-23; the holdout has not been unsealed.
+
+  | trial | effect | perm p | HAC t | verdict |
+  |---|---|---|---|---|
+  | `sigma_h1_logret` | −0.30% | 0.035 | −1.31 | **FAIL** |
+  | `sigma_h3_logret` | −0.06% | 0.790 | −0.21 | **FAIL** |
+  | `sigma_h5_logret` | +0.20% | 0.507 | +0.58 | **FAIL** |
+  | `sigma_h5_fwdrv` | +7.2 vol pts | 0.0003 | +3.32 | PASS |
+  | `sigma_h10_fwdrv` | +5.7 vol pts | 0.0001 | +2.85 | PASS |
+  | `gap_h5_fwdrv` | +21.1 vol pts | 0.0012 | +6.72 | PASS |
+  | `gap_h10_fwdrv` | +18.9 vol pts | 0.0014 | +5.58 | **FAIL** — leave-out-best-year 58% (needs 60%) |
+  | `gap_h5_abslogret` | +1.45% | 0.0055 | +6.40 | PASS |
+
+  **The directional claim is dead — `NO_EFFECT`, not `INSUFFICIENT_SAMPLE`.** All three directional trials fail, and the §4.10 distinction resolves cleanly. The minimum detectable effect at h=5 is **0.86%**, and the §3.8 cost gate requires **0.90%** to be worth trading. Those two numbers are essentially equal, which means this sample was almost exactly powered for the decision being made: any reversal large enough to clear an option bid/ask was large enough for this test to see, and it was not there. What the test *cannot* rule out is a reversal below 0.86% — which cannot be traded anyway. The observed effects are −0.30%, −0.06%, +0.20%: not merely insignificant but **sign-inconsistent across adjacent horizons**, which is what noise looks like. Neither rival mechanism survives: no reversal, so no exploitable forced-deleveraging window; no continuation either.
+
+  **The volatility claim passed, and was always the likelier survivor.** Forward realized volatility after a >1.5% gap is 36.1% against an unconditional 15.0% at h=5. It clears every §3.8 gate including top-3 removal, leave-out-best-year with its permutation re-test, and the one-bar delay. `gap_h10_fwdrv` misses on one gate only — 58% retention against a 60% floor once 2008 is removed — so the effect is real but more crisis-concentrated at ten days than at five. **h=5 is the honest horizon; h=10 is not claimed.**
+
+  **The caveat that matters more than the p-values.** The by-regime split shows the effect is monotone increasing in trailing volatility: for `gap_h5_fwdrv`, +8.9 / +14.0 / +40.3 vol points across low/mid/high terciles. Conditioning on a large move conditions on elevated volatility, which is mean-reverting by construction, so a large part of this is mechanical rather than a mispricing. For `sigma_h5_fwdrv` the low-volatility tercile is actually **negative** (−1.5 vol points); it passes only because §3.8 asks for 2 of 3. This is a statement about volatility clustering, which is public knowledge, not about anything the options market has failed to price. **Nothing here says implied vol is cheap after a gap** — that is a different and much stronger claim, and testing it needs the IV data this program has not bought.
+
+  **Disposition.** The directional half moves to the death ledger with cause `NO_EFFECT`. The volatility half is *not* promoted to a standalone Stage-2 candidate — an unconditional long-straddle-after-a-gap trade would be buying elevated implied vol precisely when it is most expensive, and §7.7's benchmark test would very likely show it adds nothing. Its correct use is the one the entry already named: **an exclusion filter on short-volatility candidates.** VRP-01, VRP-02 and VT-01 should not initiate short vol within 5 sessions of a >1.5% gap, and that rule is now measured rather than assumed. Reviving the directional claim requires a *new vehicle*, not a re-run: intraday data to test whether the reversal exists and decays inside the day, which is invisible to daily bars. That is MS-02 territory and is currently `REJECTED` on data grounds.
+
 ---
 
 ## Deferred
@@ -328,8 +349,8 @@ Kept in full, permanently. Each entry retains its mechanism description so that 
 | id | Family | Data cost | Raw events | **Indep. clusters** | Events/yr | Verdict |
 |---|---|---|---|---|---|---|
 | EV-01 | B | Free dates, paid IV later | ~90/name | **~90/name × universe** | 4/name | **Run first** |
-| DIR-01a | F | Free | 99 | **87** | 3.0 | **Run first** — `z < -3` arm |
-| DIR-01b | F | Free | 288 | **165** | 8.6 | **Run first** — `\|gap\| > 1.5%` arm; larger sample |
+| DIR-01a | F | Free | 99 | **87** | 3.0 | **Stage 1 done** — direction `NO_EFFECT`; forward vol passed |
+| DIR-01b | F | Free | 288 | **165** | 8.6 | **Stage 1 done** — forward vol and magnitude passed at h=5 |
 | EV-02 | B | Free calendar | ~270 FOMC / ~400 CPI | ~270 / ~400 | 8 / 12 | Run second |
 | VRP-01 | A | Free | 2,776 | 259 | 83 | Sample fine, effect likely thin |
 | VT-01 | D | Free | 486 | 166 | 31 | Viable; short history (2011+) |
