@@ -16,7 +16,7 @@
 | **7** | [Evaluation — What "Proven" Actually Means](#7-evaluation--what-proven-actually-means) | Metric set, distribution and concentration diagnostics, benchmarking, the promotion gauntlet, the sealed-holdout exam |
 | **8** | [Portfolio Construction](#8-portfolio-construction--running-several-setups-together) | Aggregate Greek book, hidden correlation, sizing, risk budgeting, stress grid |
 | **9** | [From Proven Hypothesis to Live Trading](#9-from-proven-hypothesis-to-live-trading) | Scanner, paper protocol, execution playbook, journal, reconciliation, kill switches |
-| **10** | [Seed Hypothesis Library](#10-seed-hypothesis-library--candidates-to-test-first) | 13 specified candidates, prioritized, plus the anti-patterns to avoid |
+| **10** | [The Candidate Library](#10-the-candidate-library) | Pointer to `Hypotheses.md` — the candidate inventory, kept separate because it churns |
 | **11** | [The Build Order](#11-the-build-order--sequenced-roadmap) | Phase map, first two weeks, definition of done, the ten failure modes |
 
 ---
@@ -74,7 +74,7 @@ Everything downstream in this document is an implementation of these. When a pro
 
 ### 0.4 How to read this document
 
-Sections 1–2 build the machinery and the ideas. Sections 3–4 are the statistical core — where you learn not to fool yourself, and where most candidates die. Sections 5–6 convert a validated premise into an options position and test it honestly. Sections 7–8 define what "proven" means numerically and how to run several setups without secretly holding one giant position. Section 9 is the live last mile. Section 10 is the starting inventory of candidates. Section 11 is the sequenced build order.
+Sections 1–2 build the machinery and the ideas. Sections 3–4 are the statistical core — where you learn not to fool yourself, and where most candidates die. Sections 5–6 convert a validated premise into an options position and test it honestly. Sections 7–8 define what "proven" means numerically and how to run several setups without secretly holding one giant position. Section 9 is the live last mile. Section 10 points to `Hypotheses.md`, the candidate inventory, which lives in its own file because it changes constantly while the method should not. Section 11 is the sequenced build order.
 
 Read 0, 2, 3, and 4 before writing any code. They are the ones that determine whether the other seven sections produce anything real.
 
@@ -627,7 +627,9 @@ Columns: `id | name | batch | status | registered_utc | spec_hash | triage_score
 | H-2026-012 | russell_rebalance_vol | RETIRED | 18 | — | — | INSUFFICIENT_SAMPLE |
 | H-2026-004 | zero_dte_late_day_momentum | RETIRED | 20 | passed | failed net of costs | COSTS_EXCEED_EDGE |
 
-Controlled vocabulary for `cause_of_death`: `NO_EFFECT`, `WRONG_SIGN`, `COSTS_EXCEED_EDGE`, `INSUFFICIENT_SAMPLE`, `DECAYED`, `CONFOUNDED`, `CAPACITY`, `CONTAMINATED`, `SUPERSEDED`, `LIVE_UNDERPERFORM`.
+Controlled vocabulary for `cause_of_death`: `NO_EFFECT`, `WRONG_SIGN`, `COSTS_EXCEED_EDGE`, `INSUFFICIENT_SAMPLE`, `DECAYED`, `CONFOUNDED`, `CAPACITY`, `CONTAMINATED`, `SUPERSEDED`, `LIVE_UNDERPERFORM`, `STAGE1_FALSE_POSITIVE`, `STRUCTURE_EXHAUSTED`.
+
+The last two are stage-2 verdicts and are defined in 6.11: `STAGE1_FALSE_POSITIVE` when the underlying edge does not survive restriction to the tradeable sample, and `STRUCTURE_EXHAUSTED` when the retry budget is spent.
 
 **Dead hypotheses never leave the registry.** Three reasons, all practical. (1) In eighteen months you will have the same idea again from a different source; the registry answers it in thirty seconds instead of two days. (2) The count of registered-and-tested hypotheses is the denominator for your false-discovery control — deleting failures inflates your apparent hit rate and invalidates every correction downstream. (3) Causes of death cluster. When five ideas die `COSTS_EXCEED_EDGE`, that is not five failures, it is one finding about your execution assumptions, and it should redirect the next batch toward wider-margin structures. Review the death ledger at the start of every batch and write down what it is telling you before generating new ideas.
 
@@ -1048,6 +1050,137 @@ Fill this in per hypothesis and paste it into the registration before the holdou
 
 **Decision rule: any Red ⇒ no-go.** More than two Yellows ⇒ no-go. Zero Reds and ≤ 2 Yellows ⇒ proceed to the holdout gate — and note that passing this scorecard earns you the *right to run one holdout test*, not a live allocation.
 
+### 4.10 A Worked Post-Mortem
+
+§0.2's funnel takes roughly 40 candidates in and lets 1–2 out, so nearly all your research time is spent killing things and the kill is the only output most hypotheses ever produce. §4.8.5 makes the post-mortem mandatory before deletion; this section says what one contains.
+
+**Three consumers, none of them you-today.** (1) *Future you*, who will have this idea again in eight months from a different source and needs the registry to answer it in thirty seconds instead of two weeks (§2.11). (2) *The registry*, whose `cause_of_death` codes cluster — five deaths by `COSTS_EXCEED_EDGE` is one finding about your cost model, not five failures. (3) *The multiple-testing denominator* — a forgotten test still inflates `N_program` (§4.2); the post-mortem keeps those trials attached to a story. And the cause of death is frequently the seed of the next hypothesis, legible only while the diagnosis is fresh.
+
+#### The worked example
+
+> **Illustrative.** No backtest has been run. Every number below is invented to show the shape of a real post-mortem; only the sample-size figures are the measured ones from the §2.9b pre-flight.
+
+```
+HYPOTHESIS POST-MORTEM
+id:             H-2026-014  (seed candidate VT-03)
+name:           rv_mean_reversion_post_spike
+registered_utc: 2026-08-24T09:12:00Z
+killed_utc:     2026-10-02T16:40:00Z
+batch:          2026Q3-B2
+status:         REGISTERED -> STAGE1 -> RETIRED
+slices used:    STAGE1 (1993-01..2022-12). HOLDOUT (2023+) NEVER UNSEALED.
+spec hashes:    sha256:4b71a0.. (base, flag RV5/RV60>2.0, entry T+3, horizon 10d)
+                sha256:9ee312.. (entry T+5)
+                sha256:c0aa47.. (flag threshold 1.75)
+                sha256:71d5f9.. (flag threshold 2.50)
+                sha256:2f8b6c.. (horizon 21d)
+                + 6 further variants, all logged in trials.jsonl
+N_hypothesis:   11 distinct specs (budget 12, §4.2)
+N_program:      143 at time of kill
+```
+
+**Claim (one sentence).** After a realized-vol spike, implied vol decays more slowly than realized vol does, so the IV−RV gap widens in the days following the flag and short vol entered 3–5 days after the flag is paid for a reversion the market has not priced.
+
+**Pre-registered falsification.** "Dead if VIX's post-flag path sits at or below the HAR-implied decay path, i.e. mean (VIX_path − HAR_forecast) over the 10 days after entry is ≤ +1.5 vol points on STAGE1."
+
+**What was measured** (base spec `4b71a0`, STAGE1, outcome = mean VIX minus HAR-implied RV forecast, 10 days post-entry, vol points):
+
+| Quantity | Measured | §3.8 gate | Verdict |
+|---|---|---|---|
+| Raw trigger events | 934 | ≥ 50 | Pass |
+| Independent clusters | **71** | ≥ 20 | Pass |
+| Effect size | **+0.62 vp** | ≥ 3.0 vp (3× the 1.0 vp vol-trade cost placeholder) | **FAIL — 4.8× short** |
+| Permutation p (block, run-length matched, 10,000 draws) | 0.14 | ≤ 0.01 | **FAIL** |
+| HAC t-stat (maxlags = 10) | 1.31 | ≥ 2.5 | **FAIL** |
+| Sign consistency, years with ≥5 events | 17/26 = 65% | ≥ 70% | **FAIL (marginal)** |
+| Sign consistency, regime terciles | 2/3 | ≥ 2/3 | Pass |
+| Leave-out-best-year (drop 2008) | +0.18 vp = **29% retention**, p = 0.51 | ≥ 60%, p ≤ 0.05 | **FAIL** |
+| Top-3 removal | 41% retention | ≥ 50% | **FAIL** |
+| One-extra-bar delay | 88% retention | ≥ 70% | Pass |
+
+**The gate that decides it.** The effect-size-vs-costs gate, failed by the widest margin: +0.62 vol points against a 3.0 vol-point requirement. Everything else is corroboration — but note that leave-out-best-year is the *diagnostic* failure. Dropping 2008 alone removes 71% of the effect, which means the headline number is one crisis wearing a 26-year costume. Best variant across all 11 specs (flag 1.75, entry T+5) reached +0.94 vp at p = 0.06; §4.1 says the expected best of 11 correlated noise trials looks about like that, so it is not a rescue.
+
+**Diagnosis — and the distinction that matters.** The pre-registered claim was **+1.5 to +3.0 vol points**. The standard deviation of the 10-day (VIX − HAR) residual on this sample is 2.4 vp, so the minimum detectable effect at 80% power on 71 independent clusters is
+
+```
+d_min = sqrt(15.7 / 71) = 0.47   ->   MDE = 0.47 x 2.4 = 1.13 vol points
+```
+
+`MDE (1.13) < prior low end (1.5)`. **The sample was powered to see the effect the spec claimed, and it was not there.** That is `NO_EFFECT` and it closes the question. Had the arithmetic gone the other way — MDE above the claimed effect — the correct verdict would have been `INSUFFICIENT_SAMPLE` with no statement about the world at all.
+
+The measured +0.62 vp sits *below* the MDE and so is itself unresolvable; it may be real. It does not matter, because it is a fifth of the cost gate. An effect too small to resolve and too small to pay the spread is closed permanently, not parked.
+
+**What is reusable.** (i) The Yang-Zhang RV estimator and HAR fit in `research/vol/har.py`, now the baseline forecast for VRP-01 and VT-01 — most of the value this hypothesis produced. (ii) The run-length-matched block permutation (§3.6 refinement i): naive permutation returned p = 0.008 here, the block version 0.14, a 17× difference that would have promoted a dead idea. (iii) Confirmation of the §2.9b general lesson — 1,165 raw events collapse ~14× to 86 clusters because elevated vol *persists*. State-based triggers are sample-poor by construction.
+
+**Successor question.** The state trigger fires throughout an episode and buys nothing beyond its first day. Does the *first crossing* of `RV5/RV60` through 2.0 — a point event, one per episode, ~86 of them — carry information the persistent state washes out? Registered as **H-2026-021** `rv_reversion_first_crossing`, inheriting these 11 trials as its starting `N` per §4.8.2. Pre-flight first: 86 clusters against an MDE of 1.03 vp is thin, and if the prior effect size cannot honestly be written above that number, do not register it.
+
+**Cause of death:** `NO_EFFECT`. **Successor:** `H-2026-021`.
+
+#### `NO_EFFECT` vs. insufficient power
+
+These are opposite verdicts and are constantly conflated. §2.11 spells the power verdict `INSUFFICIENT_SAMPLE`; it means *the study never had the resolution to answer the question*, says nothing about the market, and leaves the question open — re-test when more data exists, and record how much is needed. `NO_EFFECT` means *the study could have seen the claimed effect and did not*, and closes the question permanently.
+
+The rule, mechanical, computed before you write the verdict:
+
+```
+sigma      = SD of the per-event outcome
+n          = INDEPENDENT CLUSTERS (never raw events)
+MDE        = sqrt(15.7 / n) * sigma            # §3.6, alpha=0.05, power=0.8
+prior_low  = low end of prior_effect_size in the §2.7 spec
+
+MDE <= prior_low   ->  NO_EFFECT             (closed; do not re-register)
+MDE >  prior_low   ->  INSUFFICIENT_SAMPLE   (open; record n_required =
+                                              15.7 / (prior_low/sigma)^2
+                                              and the calendar year the trigger
+                                              frequency will supply it)
+```
+
+Two corollaries. Without a numeric `prior_effect_size` in the spec you can compute neither verdict — which is why §2.7 makes the field required. And an `INSUFFICIENT_SAMPLE` death indicts the §2.9 pre-flight: the MDE was computable before any trial was burned and should have killed the candidate there.
+
+#### The template
+
+Copy to `results/<id>/<spec_hash>/postmortem.md`, front-matter first, prose under the headings.
+
+```yaml
+id:                 # hypothesis id, matching the registry
+name:               # spec `name` field
+registered_utc:     # from the spec
+killed_utc:         # when the verdict was written, not when you lost interest
+batch:              # generation batch, so death clusters by cohort
+status_path:        # REGISTERED -> STAGE1 -> RETIRED
+slices_used:        # which splits were touched; state explicitly if HOLDOUT is intact
+spec_hashes:        # EVERY variant run, one per line, with its parameter delta
+n_hypothesis:       # distinct specs (§4.2); trial budget and whether it was hit
+n_program:          # program-wide trial count at time of kill
+
+claim:              # the hypothesis in one sentence
+falsification:      # verbatim from the spec's `falsification` field — not paraphrased
+results_table:      # measured vs §3.8 gate vs pass/fail, every gate, no omissions
+gate_failed:        # the specific gate and the numeric margin
+best_variant:       # best result across all variants, vs the §4.1 best-of-N noise level
+sigma:              # SD of the per-event outcome
+n_clusters:         # independent clusters, not raw events
+mde:                # sqrt(15.7/n)*sigma
+prior_low:          # low end of prior_effect_size from the spec
+verdict_logic:      # MDE vs prior_low, and which of the two verdicts follows
+diagnosis:          # WHY it failed, in mechanism terms, not statistics terms
+reusable:           # code, data, negative facts other hypotheses inherit
+successor_question: # what the failure suggests testing next
+successor_id:       # new id if registered, or "none — and why not"
+cause_of_death:     # §2.11 controlled vocabulary, exactly one code
+n_required:         # INSUFFICIENT_SAMPLE only: clusters needed, and the year they arrive
+revisit_after:      # killed_utc + 90 days (§4.8.4)
+revisit_condition:  # what new data or new mechanism would justify it
+```
+
+#### Filing rules
+
+1. **Location:** `results/<id>/<spec_hash>/postmortem.md`, under the hash of the *base* spec, so it is content-addressed alongside the run outputs it describes (§1.1).
+2. **Written before anything is deleted.** No branch, notebook, cached dataset, or results directory is removed until the post-mortem is committed (§4.8.5). Delete the artifacts, keep the finding.
+3. **The registry links to it.** `scripts/build_registry.py` fills `cause_of_death`, `successor_id`, and a `notes` link to the post-mortem path. A `RETIRED` row with no linked post-mortem is a build failure, not a warning.
+4. **Cooling-off is 90 days** (§4.8.4), applied to the *idea*, not the id — re-registering the same trigger under a new name to dodge the clock is the same sin as silent re-specification. Revival then requires genuinely new data or a genuinely new mechanism, named in the new spec's `rationale`, and the new id inherits the dead one's trial count.
+5. **Review the death ledger before generating each batch** (§2.11). Post-mortems are what make that review say something.
+
 ---
 
 ## 5. Translating a Validated Premise into an Options Structure
@@ -1318,7 +1451,7 @@ for k, v in contrib.items():
 
 **Strikes.** 16Δ short legs → $K_{call} = 512.5$, $K_{put} = 487.5$ ($\pm 2.5\%$, i.e. $\pm 1.26\times$ EM, and beyond the 95th-pct MAE of 3.6%... marginally — so verify empirically). Wings 7.5 wide: long 520 call / long 480 put.
 
-**Pricing (synthetic, flat 18% for illustration).** 512.5C = 1.04, 487.5P = 1.05, 520C = 0.27, 480P = 0.26. Net credit $= 2.09 - 0.53 = \$1.56$ → **\$156 per condor**, max loss $750 - 156 = \$594$. Per \$1,000 of risk: **1.68 condors**.
+**Pricing (synthetic, flat 18% for illustration).** 512.5C = 1.04, 487.5P = 1.05, 520C = 0.27, 480P = 0.26. Net credit $= 2.09 - 0.53 = \$1.56$ → **\$156 per condor**, max loss \$750 - 156 = \$594$. Per \$1,000 of risk: **1.68 condors**.
 
 **Expiry.** $h=5$, $s_h=1.5$ → short-premium rule gives DTE $\approx 1.0\text{–}1.3\times h$ = 5–7. Use the 7-DTE weekly. Exit at day 5 or 55% of max profit.
 
@@ -1327,13 +1460,70 @@ for k, v in contrib.items():
 | Greek | Value | Check |
 |---|---|---|
 | Net delta | ≈ −2 shares | Flat, as required for a vol-only edge |
-| Net gamma | −3.6 shares per \$1 | −\$45 P&L on a 1% ($5) move — the cost of being short |
+| Net gamma | −3.6 shares per \$1 | −\$45 P&L on a 1% (\$5) move — the cost of being short |
 | Net theta | +\$41/day at inception | ~\$205 over 5 days |
 | Net vega | −\$32 per vol point | 5.5-pt VRP → ~\$176 if IV converges |
 
 **Attribution (simulated on the 214 empirical trigger paths):** theta 44%, vega 33%, gamma 20%, delta 3% of mean |P&L|. Edge Greeks (theta + vega, the two faces of short variance) = 77% ≥ 50%. Delta 3% ≤ 25%. **Budget passes.**
 
 **Expected value:** $\approx +\$205 - \$45 \approx +\$160$ per \$1,000 risked over 5 days, before costs — against a defined max loss of \$1,000. The condor's 4-leg bid/ask on SPY weeklies is roughly \$0.10–0.15, i.e. \$17–25 per condor, ~\$34 per \$1,000 — a 21% haircut on gross EV. That number is an estimate; **Section 6 replaces it with real quotes and real fills before this becomes a trade.**
+
+### 5.11 Tax Treatment as a Structure Decision
+
+> **This is not tax advice.** It is a description of long-standing features of the US federal tax code as they bear on instrument selection, written for a US retail trader. Tax law, rates, thresholds and broker reporting practice change, and treatment depends on facts this document cannot see — your account type, your state, your other positions, whether you qualify for any elective regime. Confirm current treatment with a qualified tax professional before you let any of it change a trade. Nothing below should be read as a claim about what the rules are in your tax year.
+
+**Why this belongs in Section 5 and not an appendix.** Everything up to here optimizes pre-tax P&L. §5.4 chose structures on Greek exposure, §6.4 charged commissions and fees, §6.7 filtered on liquidity — and §5.10's worked example landed on a SPY iron condor essentially because SPY's book is tight. But the instrument you pick to express a validated premise carries a tax character, and for a high-turnover strategy the difference in tax character between two otherwise-equivalent instruments is routinely **larger than the bid/ask difference you were optimizing**. In §5.10 the 4-leg spread cost ~21% of gross EV; a difference in effective tax rate of ten points on the same P&L costs ten points of *net*, every year, with no execution skill available to reduce it.
+
+> **After-tax expectancy is the only expectancy that matters.** Every metric in §7 — expectancy, profit factor, Sharpe, Calmar, return on capital-at-risk — is computed pre-tax. Two hypotheses with identical §7 cards are not equally good if one is expressed in an instrument taxed at ordinary rates and the other is not.
+
+**The core distinction: Section 1256 contracts vs. equity options.** Internal Revenue Code Section 1256 covers, among other things, "nonequity options" — which generally includes exchange-listed options on **broad-based** stock indexes. SPX, XSP, NDX, RUT and similar cash-settled broad-based index products are generally Section 1256 contracts. Two consequences follow:
+
+1. **The 60/40 split.** Gain or loss on a Section 1256 contract is generally treated as 60% long-term and 40% short-term **regardless of actual holding period** — a position opened and closed in an afternoon gets the same character as one held a year. Long-term capital rates are materially below ordinary income rates at essentially every bracket, so the blended rate on Section 1256 gains is below the ordinary rate that short-term gains attract. Sized as a mechanism rather than a number: the annual saving is approximately $0.6\times(t_{ST}-t_{LT})\times G$ on net gain $G$, where $t_{ST}$ is your ordinary marginal rate and $t_{LT}$ your long-term rate. **Look up your own two rates and compute that product** — do not take a rate figure from this document or any other.
+2. **Year-end mark-to-market.** Open Section 1256 positions are generally treated as sold at fair value on the last business day of the tax year, with gain or loss recognized then and basis adjusted. This accelerates tax on unrealized gains (a cash-flow drag) and equally accelerates recognition of unrealized losses. For strategies holding nothing across the year boundary it is close to a non-event; for anything holding LEAP-scale positions (§5.6's 3–18 month row) it is not. Section 1256 results are reported separately from ordinary capital transactions, and net Section 1256 losses may be electively carried back against prior Section 1256 gains under rules whose window you should verify.
+
+Options on **ETFs** — SPY, QQQ, IWM — and on single names are options on a *security*, not on an index, and are generally **not** Section 1256. Held under a year they produce short-term capital gain, taxed as ordinary income. For a strategy running 20–45 DTE structures, or weeklies, or 0DTE, "held under a year" describes 100% of trades. There is no holding-period discipline available that fixes this; the strategy's horizon is set by the edge (§5.6), not by the calendar.
+
+Two boundary warnings: options on **narrow-based** indexes are generally treated as equity options, not Section 1256, and the broad/narrow determination is a legal test, not a naming convention. And Section 1092 straddle rules can defer losses on offsetting positions held across instruments — relevant the moment you hedge an index position with an ETF position. Both are professional questions.
+
+| Instrument | Settlement (see §6.5) | General tax character | Year-end MTM | Practical implication at high turnover |
+|---|---|---|---|---|
+| SPX / SPXW | European, cash-settled; monthly AM vs. SET, weeklies PM | Generally Section 1256 — 60/40 | Yes | Best case: full 60/40 on every trade, no assignment, no wash sales. Large notional per contract |
+| XSP (Mini-SPX) | European, cash-settled, PM | Generally Section 1256 — 60/40 | Yes | Same treatment at ~1/10 SPX notional. The small-account route to Section 1256 |
+| NDX / RUT | European, cash-settled | Generally Section 1256 — 60/40 | Yes | Same as SPX; verify the specific product is broad-based |
+| SPY / QQQ / IWM options | American, physically settled, PM | Generally **not** Section 1256 — short-term for sub-1-year holds | No | Tightest books, smallest notional, worst tax character. Also carries early-assignment and dividend risk (§6.5) |
+| Single-name equity options | American, physically settled | Generally **not** Section 1256 — short-term | No | Worst on both axes: ordinary-rate taxation *and* wash-sale exposure *and* assignment risk |
+| Underlying ETF/stock shares | n/a | Short-term unless held > 1 year | No | The delta-hedge leg of a Section 1256 index option is *not* Section 1256 — hedging can mix characters and invoke straddle rules |
+
+**The decision rule.** Turnover is the multiplier. Let $T$ be trades per year and $G$ expected annual net gain from the strategy. The tax delta between an index and an ETF expression is roughly $0.6\times(t_{ST}-t_{LT})\times G$ — it scales with $G$, and $G$ scales with $T$. So:
+
+- **Prefer the Section 1256 index expression** when the strategy is high-turnover (weekly or faster cadence), taxable, and the index product clears §6.7's liquidity filters at your size. This is the common case for index-premium strategies, and it should override a marginal liquidity preference for SPY.
+- **Do not let tax override liquidity** when the index book cannot absorb your size, when the spread differential is large enough to exceed the tax delta on a per-trade basis (compute it: tax saving per trade vs. incremental slippage per trade, both in dollars), or when the edge itself is specific to the ETF — SPY and SPX are not the same instrument, and an edge validated on one must be re-validated on the other before you switch (§3.5, §6.8). A tax-motivated instrument swap is a **new hypothesis**, not a parameter change.
+- **Notional is the usual blocker, and XSP is the usual answer.** A full SPX condor risks roughly 10× an XSP condor; an account that cannot carry SPX size at the minimums in §8.11, the position limits in §8.5, or the margin ceiling in §8.8 can often carry XSP size and still get Section 1256 treatment. Check XSP's actual spread and depth on your strikes before assuming it — the treatment is worthless if the fill costs more than it saves.
+
+**Tax-advantaged accounts change the calculus entirely.** In an IRA or similar deferred/exempt account, gains are not currently taxed, so the 60/40 advantage largely disappears and instrument choice reverts to exactly the grounds §5 already used: liquidity, capital efficiency, settlement mechanics, notional granularity. Losses are also not deductible, which removes the loss-carryback and loss-offset arguments in the other direction. But such accounts impose structural constraints that interact directly with §8.8 and §8.11: they are generally cash-secured, borrowing on margin is typically prohibited, and undefined-risk positions — naked short calls, naked short puts beyond cash-secured, most ratio structures with a naked leg — are commonly restricted or unavailable by approval level. Half of §5.4's structure matrix may simply not be executable there. Determine your account's actual permissions **before** structure selection, not after, and record the constraint in the spec.
+
+**Wash sales, and why systematic strategies are more exposed than discretionary ones.** The wash-sale rule disallows a loss when a substantially identical security is acquired within a window spanning roughly a month either side of the sale, with the disallowed loss added to the replacement position's basis. It generally applies to stock and securities — including equity and ETF options — and generally does **not** apply to Section 1256 contracts, which are under the mark-to-market regime instead.
+
+The trap is mechanical. A discretionary trader who takes a loss and moves on rarely repeats the position inside the window. A systematic strategy **re-enters on a schedule** — same underlying, same structure, often similar strikes — which is precisely the fact pattern the rule catches, and it can catch it repeatedly across a chain of trades, deferring recognition of a loss out of the year in which the offsetting gains were realized. Nothing in §6.2's P&L engine models this; a backtest that nets a losing trade against a subsequent winner is silently assuming a treatment that may not apply. In pathological cases a strategy that ended the year flat can carry a taxable gain. This is another concrete argument for index products in high-turnover systematic trading. **Verify how your broker reports it** — reporting on the 1099-B is per-account and per-instrument, brokers differ in how they identify "substantially identical" across strikes and expiries, and their reporting is not necessarily identical to your obligation.
+
+**What to actually do.**
+
+1. **Add an `after_tax` block to the hypothesis spec (§2.7)** recording the intended instrument, its expected tax character, whether the account is taxable or deferred, and any wash-sale exposure. It is a pre-registered assumption like any other and must be stated before results are seen.
+
+```yaml
+after_tax:
+  account_type: taxable            # taxable | ira_or_deferred
+  instrument: XSP                  # the instrument this hypothesis will trade
+  expected_character: sec_1256_60_40   # sec_1256_60_40 | short_term_ordinary
+  year_end_mtm: true
+  wash_sale_exposure: none         # none | material — schedule re-entry within window
+  assumed_blended_rate: 0.00       # YOUR figure, verified for your tax year; 0 for deferred
+  verified_with_professional: false
+```
+
+2. **Re-run §7's expectancy on an after-tax basis before promotion.** At the §7.8 gauntlet, print the pre-tax card and one line beneath it: expected annual net P&L × (1 − assumed blended rate), with the rate from the spec. If a hypothesis passes pre-tax and fails after-tax against the §7.7 benchmark, it fails.
+
+3. **Keep the tax assumption out of the backtest engine.** Model it as a **post-hoc haircut applied to the aggregate**, never inside the per-trade P&L in §6.2. Three reasons: tax is an annual, account-level, offset-dependent computation that per-trade arithmetic gets wrong; the rate is a property of *you*, not of the strategy; and burying it in the engine makes pre-tax results non-comparable across hypotheses registered at different times under different assumed rates. The backtest reports pre-tax. The promotion decision reads both.
 
 ---
 
@@ -1563,6 +1753,50 @@ Run all of these before believing any number. Any hit is a stop-and-investigate,
 - [ ] **Inversion test.** Flip the signal sign and rerun at the same `k`. The inverted strategy should lose roughly symmetrically after costs (both sides paying friction). **If both directions make money, you have a pricing or fill bug — full stop.** Common causes: marking with a different timestamp than filling, mid-fill on both sides, stale-quote arbitrage, or survivorship in the chain data.
 - [ ] **Timestamp audit.** Confirm the signal input, the chain snapshot, and the underlying price all come from the same or earlier moment than the fill. Signal from the close, fill at the same close, is lookahead.
 - [ ] **Zero-cost check.** Rerun with commissions and spreads set to zero. If net P&L barely changes, your cost model isn't wired in.
+
+### 6.11 When Stage 1 Passes and Stage 2 Fails
+
+The premise cleared §3.8 and §4, the options wrapper lost money at k=1.0, and the sentence forming in your head is *"the edge is real, I just picked the wrong structure."* Sometimes that is true. Usually it is the beginning of a structure sweep dressed up as a diagnosis. This subsection is the protocol that separates the two, and it is binding: **no re-translation may be run until the failure has a named cause backed by its diagnostic.**
+
+**Step 1 — attribute the failure before touching anything.** Run all five diagnostics on the failing backtest. They are cheap (they reuse trades you already have) and none of them is a new trial.
+
+| Cause | Diagnostic test | Terminal? |
+|---|---|---|
+| **(a) Cost drag** | Cost multiple = gross edge per trade at k=0 ÷ realized round-trip cost (spread at k=1.0 + §6.4 fees). Report it per trade and at the median, not the mean. | Usually — see below |
+| **(b) Horizon mismatch** | Horizon capture ρ_h = mean cumulative underlying move realized *inside* the option's actual life ÷ the full stage-1 h-day mean move. Plot mean cumulative return by day-since-trigger against your entry→exit window. ρ_h < 0.5 = mismatch. | No |
+| **(c) Wrong Greek** | Rerun the §5.9 attribution on **realized** backtest paths, not simulated ones. Fails if the edge Greek is < 50% of mean \|P&L\| or any unsupported Greek is > 25%. | No |
+| **(d) Path dependence** | For losing trades: was the terminal underlying move the sign/size stage 1 predicted? If yes in ≥ 60% of losers, tabulate MAE against strike distance and stop level. Path, not forecast, killed them. | Yes |
+| **(e) Stage-1 false positive** | Re-run the stage-1 event study **restricted to the trigger dates that survived the §6.7 liquidity filters and the §6.5 exclusions**. If the underlying edge weakens materially or loses significance on that subset, the edge never existed in the tradeable sample. Cross-check the deflated Sharpe at the current `N`. | Yes |
+
+Run (e) first — it is the cheapest and the most fatal. Run all five regardless; multiple causes co-occur, and **the most terminal cause found governs**, not the most convenient one.
+
+**Step 2 — which causes license a retry.** The distinction rests on what kind of claim each cause falsifies. The hypothesis is a claim about the underlying. The §5 structure is an *estimator* of that claim — a modelling choice (which Greek, which horizon, which sign of premium) made under uncertainty before any options P&L existed. A demonstrably bad estimator does not falsify the claim. Costs, path behaviour and statistical significance are claims about the world, and failing them falsifies the trade itself.
+
+| Cause | Retry licensed? | Condition |
+|---|---|---|
+| (a) Cost drag | **Only with proof** | You must name a specific structure and show, from quotes and before running anything, that it cuts round-trip cost per unit of edge by ≥ 50% and lands the cost multiple ≥ 2.0. "Try wider/cheaper" is not proof. If realistic costs exceed the edge, no structure fixes it. |
+| (b) Horizon mismatch | **Yes** | One re-translation with DTE/exit re-derived from the observed cumulative-return curve per §5.6 — not scanned. |
+| (c) Wrong Greek | **Yes** | One re-translation that moves the dominant Greek onto the edge Greek per §5.9. |
+| (d) Path dependence | **No** | Terminal. Path risk was measurable at §5.2(c) intake; re-picking strikes to survive the MAEs you just observed is fitting the sample, and the wider strikes that survive them no longer carry enough premium or delta to clear costs. |
+| (e) False positive | **No** | Terminal. Retire the hypothesis with cause of death `STAGE1_FALSE_POSITIVE`. Stage 2 did its job. |
+
+**Step 3 — the retry budget.** **At most two structure re-translations per hypothesis, ever.** Both pre-registered before running. Both logged as trials against the §4.2 budget with new `spec_hash`. Each one justified in writing by a named diagnostic from step 1 — a written sentence naming the cause, the measured statistic, and the single change it implies. "Let's try a calendar instead" is not a justification and the runner should refuse it. **A third attempt retires the hypothesis** with cause of death `STRUCTURE_EXHAUSTED`.
+
+The cap is §4.1 arithmetic. Three structures × the DTE and delta choices already inside each is 20–30 effective trials on one signal; at 3 years of data (SE ≈ 0.58) the expected best-of-N noise Sharpe is already ~1.3–1.4. Beyond two retries you cannot distinguish a fixed strategy from the max of a search, so the extra attempts buy no information — they only buy a number you will believe.
+
+**Step 4 — legitimate re-translation vs fishing.** A legitimate retry is **one named change, with a numeric prediction stated before the run, judged against that prediction.**
+
+| Legitimate | Fishing |
+|---|---|
+| "Attribution showed 71% theta on a directional edge. Switch the credit spread to a debit vertical with DTE matched to h=10. Prediction: theta share < 25%, delta share > 50%, net expectancy > +\$40/trade at k=1.0." | "Tried 30/45/60 DTE and 16/25/30 delta, kept the best." |
+| "ρ_h = 0.31: 68% of the move lands on days 8–14, our 7-DTE contract expired first. Move to 21 DTE, exit day 14. Prediction: ρ_h > 0.8, gross edge/trade rises ≥ 2x." | "The 45-DTE version was close to breakeven so we nudged to 50." |
+| "Round-trip cost is 62% of gross edge on \$0.45 wings. Replace with a 5-wide vertical on \$3.20 options; quoted spread falls from 16% to 3% of mid. Prediction: cost multiple ≥ 2.5." | "Swapped to a butterfly because the condor didn't work." |
+
+If the retry is profitable but the prediction was wrong — theta share is still 60% and it made money anyway — that is a **fail**, not a pass. You have found a different, unregistered strategy and must register it as a new hypothesis with a fresh premise.
+
+**Step 5 — re-registration.** The re-translated hypothesis **keeps its ID and takes a suffix** (`H-2026-007-r1`). New spec, new `spec_hash`, new results directory. The original stage-2 failure stays in `results/` with its diagnosed cause; nothing is overwritten or edited. §2.8's pre-commit hook enforces this — a spec whose ID already appears in `results/` cannot be modified in place. Add `retry_of`, `retry_cause`, and `retry_prediction` fields to the spec so the registry shows, on inspection, exactly how many structures this idea consumed. The sealed holdout is untouched throughout (§6.9, §7.9); retries spend in-sample data only.
+
+**The honest prior.** Most stage-2 failures are real failures. Expect roughly half of stage-1 survivors to die at stage 2 with no retry warranted, and expect fewer than one retry in five to produce something that survives §7. Hold this sentence: **a strategy that only works in its third structural variant is far more likely to be fitted than fixed.**
 
 ---
 
@@ -1861,7 +2095,7 @@ where `δ_i` is per-share option delta, `N_i` signed contracts, `β_i` the under
 | Beta-weighted delta | SPY-equivalent $ notional | ±\$25,000 | A 5% index gap costs ±\$1,250 = 1.25% of equity from delta alone. |
 | Net dollar gamma | Δ$ change per 1% SPY move | ±\$5,000 | After a 5% move, delta has swung by 25% of equity — forces a re-hedge before delta breaches its own cap. |
 | Net vega | $ P&L per 1 vol point | ±\$500 | A 10-point VIX spike = 5% of equity. Two such events in a quarter is survivable; three times this limit is not. |
-| Gross vega | Σ \|bucket vega\| | $900 | Caps the calendar bet hidden inside a flat net (see 8.3). |
+| Gross vega | Σ \|bucket vega\| | \$900 | Caps the calendar bet hidden inside a flat net (see 8.3). |
 | Net theta | $ per day | −\$60 to +\$150 | +\$150/day = 0.15%/day. More positive theta than this means you are short more gamma than the gamma cap allows. |
 | Net vanna | Δvega per 1% down move | ±\$60 | A −10% move then shifts vega by \$600 — already above the vega cap, which is why the stress grid (8.7), not this line, is the binding constraint. |
 | Net charm | Δ$ delta drift per day | ±\$2,500 | Over a 3-day weekend that is 7.5% of equity of unintended direction. |
@@ -2031,6 +2265,76 @@ Required control: before every entry, net all open legs by `(underlying, expiry,
 | **Quarterly** | Full re-validation of each strategy against Section 7's evaluation criteria; review whether the strategy count is still within the monitoring ceiling | Any strategy failing re-validation → retire it. Do not "give it more time"; the risk budget it holds has better uses. |
 
 One discipline underlies all of it: **the limits are computed from equity, and equity moves.** Recompute the per-\$100k scaling monthly and after any single-day move exceeding 3% of the account. Limits that were set at last year's account size are the most common reason a book that "followed the rules" ends up twice as large as the rules allowed.
+
+### 8.11 Minimum Viable Account Size
+
+Everything in §8 is worked on a \$250,000 account. That is not a neutral choice of units — several of the mechanics above stop functioning below a threshold, and the threshold is different for every structure. This section states where those thresholds are. It belongs at the front of the process, not here: a reader with \$20,000 should learn on page one which candidate families are arithmetically unavailable, not discover it at §6 after buying options data and spending four months.
+
+**Three mechanisms break at small size.**
+
+**(a) Friction is fixed per contract; edge is proportional to premium.** §6.4's default is \$0.65/contract/side, i.e. \$1.30 round trip *per leg*. A 4-leg iron condor therefore costs \$5.20 round trip per contract before slippage. A small account, sized by the 1% rule, is pushed toward exactly the cheapest structures — narrow wings, low-priced options — where that toll is largest as a fraction of the trade:
+
+| Structure | Gross credit / contract | Round-trip friction | Friction as % of credit |
+|---|---|---|---|
+| 1-pt SPY vertical (2 legs) | \$40 (\$0.40) | \$2.60 | **6.5%** |
+| 1-pt SPY iron condor (4 legs) | \$40 | \$5.20 | **13.0%** |
+| 25-pt SPX vertical (2 legs) | \$800 | \$2.60 + index fees ≈ \$4.00 | 0.5% |
+
+If the strategy's validated edge is 20% of collected credit (already a strong result), the 4-leg version hands back two-thirds of it before slippage. §6.4's conclusion applies with full force: **edge must scale with premium, not with contract count**, and a small account cannot buy premium.
+
+**(b) Integer contract granularity.** `contracts = floor(r × Equity / R_per_contract)` (§8.5). When `R_per_contract` exceeds `r × Equity`, that floor is zero. There is no fractional contract. The trader then either overbets — the single most common way small accounts die — or skips the trade, in which case the strategy's realized sample diverges from its backtest and the edge estimate is no longer the one that was validated.
+
+**(c) Minimum structure width exceeds the whole risk budget.** SPX strikes are on a 5-point grid at the front and 25 points further out; a 25-wide SPX put spread has \$2,500 of notional width, so even at a \$700 credit R = \$1,800. On a \$30,000 account at r = 1%, the budget is \$300. The structure is not "expensive" — it is unbuildable. The same applies to \$400–900 mega-cap single names, where the tradeable strike increment is \$5–10 and the narrowest liquid spread is already \$500–1,000 of risk.
+
+**Minimum account by instrument and structure.** R is the §8.5 stress-node loss for **one** contract (−2σ over 5 days, IV × 1.5, repriced leg-by-leg), not margin and not max loss. Minimum account = `R / r`. Columns show r = 1.0% (single confirmed strategy) and the effective r for a three-strategy book, where §8.5's worked allocation puts per-trade risk near 0.5% of equity.
+
+| Structure | R, 1 contract | Min acct @ r=1% | Min acct, 3-strategy book | Note |
+|---|---|---|---|---|
+| SPY/QQQ vertical, 1–2 pt wide | \$65–\$130 | \$6,500–\$13,000 | \$13,000–\$26,000 | The practical floor for any options program. Friction is 6–13% of credit (above). |
+| SPY/QQQ vertical, 5 pt wide | ~\$350 | \$35,000 | \$70,000 | Better friction ratio; this is the sensible small-account default. |
+| SPY/QQQ 16Δ short strangle (Reg-T) | ~\$1,400 | **\$140,000** | \$280,000 | Reg-T margin is only ~\$7,700 (§6.6) — margin is not the constraint, the stress node is. |
+| SPX/index defined-risk, 5 pt | ~\$350 | \$35,000 | \$70,000 | Thin at 5 pt; the liquid grid is 25 pt. |
+| SPX/index defined-risk, 25 pt | ~\$1,800 | **\$180,000** | \$360,000 | Where SPX defined-risk actually becomes tradeable. |
+| SPX naked / short strangle | \$12,000–\$16,000 | **\$1.2M–\$1.6M** | \$2.5M+ | Reg-T ~\$85k/contract. Portfolio margin needs \$100k equity minimum and still ~\$30k/contract. Not a retail structure. |
+| Single name \$50–200, defined risk (\$5 wide) | ~\$350 | \$35,000 | \$70,000 | Widest spreads of any row; add slippage before believing the number. |
+| Single name \$50–200, earnings strangle | \$900–\$1,200 | **\$90,000–\$120,000** | \$200,000+ | Overnight gap risk is the R driver, not the Greeks. |
+| Single name \$300+ , defined risk (\$10 wide) | ~\$750 | \$75,000 | \$150,000 | Strike increment sets the floor; you cannot go narrower. |
+| Single name \$300+ , strangle | \$3,000–\$5,000 | **\$300,000–\$500,000** | \$750,000+ | One position consumes a \$250k book's entire per-trade budget. |
+| Delta-hedged option position (SPY-scale) | ~\$500 option leg | **\$75,000–\$100,000** | \$150,000 | Binding constraint is hedge capital: ±100 shares of a \$640 underlying is \$64,000 notional (~\$32,000 at Reg-T initial), plus per-rehedge friction. |
+
+Redo the column with your own r: `min_account = R_per_contract / r`. At r = 0.25% (the mandatory starting tier for any new strategy, §8.6), every figure above **quadruples**. A strategy you can only afford at full size is a strategy you cannot ramp into, and ramping is not optional.
+
+**The granularity rule — a hard gate, not a guideline.**
+
+```
+R_1        = §8.5 stress-node loss of ONE contract of the intended structure
+budget     = r × Equity × (strategy's share of the risk budget, §8.6)
+if R_1 > budget:  the strategy is not tradeable at this account size.
+```
+
+No rounding down, no "just this once," no substituting margin for R because margin is smaller. Trading one contract when the budget permits 0.4 is a 2.5× overbet held for the life of the position, and it is permanent, not occasional — the same trade recurs every cycle.
+
+*Worked rejection.* \$40,000 account, one confirmed strategy, r = 1.0% → budget \$400/trade. Candidate: 25-pt SPX put spread, R = \$1,800. `1,800 > 400` → rejected. The 5-pt version at R = \$350 passes the arithmetic but fails §6.7's liquidity filter (spread > 10% of mid at that width). Correct conclusion: **SPX defined-risk is unavailable at \$40,000.** The substitute is the SPY expression of the same premise — 5-pt SPY vertical, R ≈ \$350 — accepting that SPY is American-style, PM-settled, physically settled, and taxed as ordinary short-term gain rather than under Section 1256's 60/40 treatment. That tax difference is worth roughly 8–10 points of after-tax return on a short-term book. Pay it. It is far cheaper than not trading, and immeasurably cheaper than overbetting SPX.
+
+**What a small account should actually do.**
+
+1. **Defined risk only.** Naked short premium is not a leverage choice at small size, it is a bet-the-account choice: one SPY strangle's stress node is 3.5% of a \$40,000 account, and the §8.7 grid's −10%/+100% node is worse.
+2. **Cheaper underlyings, deliberately.** SPY over SPX, QQQ over NDX, sector ETFs over mega-cap single names. You give up Section 1256 treatment and pay more per unit of notional in commission; you gain the ability to size correctly, which dominates.
+3. **One strategy, not a portfolio.** Below roughly **\$100,000**, most of §8 is inert — §8.2's Greek limits scale to numbers smaller than one contract's Greeks, §8.4 needs 60 overlapping daily observations per pair you do not have, and §8.9's 3-strategy ceiling is moot. Run one strategy to \$100k, a second to \$250k, a third above that. The Greek book (§8.2) and stress grid (§8.7) are still worth maintaining — they just describe one strategy's positions.
+4. **Accept slower confirmation.** §8.6's ramp needs 100+ live trades for full expectancy. At 1–2 concurrent positions and 8 cycles a year, that is years, not quarters. The correct response is patience, not larger size.
+5. **Filter unavailable families out at §2.9.** Single-name earnings structures, SPX naked, mega-cap strangles, and delta-hedged vol positions are not "hard" below \$100k — they are unavailable. Do not spec them, do not backtest them, do not build a data pipeline for them.
+
+**Where the check belongs: §2.9, alongside capacity.** Add one disqualifier row to §2.9(a), tested before the spec is written:
+
+| Disqualifier | Test |
+|---|---|
+| Minimum viable position exceeds risk budget | `R_1contract of the cheapest tradeable expression > r × Equity` |
+
+One line, computable in a minute from a synthetic price (§5.8) and a stress reprice, and it kills the candidate before it consumes a spec, a trial (§4.2), or a data purchase. §2.9 already kills ideas for capacity below account size; this is the mirror image — position size above account size.
+
+**The honest note.** Below roughly **\$30,000**, this entire research program cannot pay for itself. A validated retail options strategy, denominated honestly on capital at risk (§6.6), realistically returns 8–15% a year. On \$25,000 that is \$2,000–\$3,750 gross. Historical options data adequate for §6 runs \$1,200–\$3,000 a year, and Sections 1–7 are 300–600 hours of work before the first live trade. The arithmetic is a negative hourly rate for several years, and it does not improve by trying harder — it improves by having more capital.
+
+Two legitimate responses, neither of them a consolation prize. **Trade one simple, cheap, well-understood structure while building capital from outside income** — a SPY or QQQ defined-risk vertical on a mechanical rule, sized at 1%, journaled per §9.6 — which builds the execution discipline that is the actual bottleneck for most traders and costs nearly nothing. Or **run the program as education**: do Sections 1–5 on free data, learn to build a backtest that does not lie to you, and defer the §6 data purchase until the account can carry it. Both are better uses of the next two years than a correctly-researched strategy you cannot size.
 
 ---
 
@@ -2280,212 +2584,29 @@ The annual reproducibility rebuild is the discipline that keeps the research sta
 
 ---
 
-## 10. Seed Hypothesis Library — Candidates to Test First
+## 10. The Candidate Library
 
-Thirteen untested candidates in Section 2's YAML spec. None is a strategy — each is a claim about the data with a mechanism and a cheap way to be proven wrong. Parameters are round starting values, not optimized; tuning them is a research decision to log against the multiple-testing budget.
+The inventory of hypotheses to feed through this pipeline lives in its own file:
 
-Notation: `RV_n` = n-day close-to-close realized vol, annualized 252. Forward windows overlap — block bootstrap, never naive t-stats. Throughout, **effective N = independent episodes, not row count.**
+> **[`Hypotheses.md`](Hypotheses.md)** — the candidate hypothesis library.
 
-### A. Variance Risk Premium / IV–RV Spread
+**Why it is separate.** This document is the *method* and should change rarely — when you learn something about how to test, not about what to test. The candidate library is the *material* and changes constantly: entries get added, demoted, killed, and superseded, and by the §0.2 funnel most of them will be dead within a year. Keeping them in one file would mean every dead idea churns the methodology, and the two have completely different rates of change.
 
-#### VRP-01 — Conditional short premium at wide IV–RV spread
-- **Name / id:** `vrp_conditional_spread_spy`
-- **Mechanism:** Hedgers (vol-target funds, pension overlays, retail put buyers) buy index convexity for mandate reasons, not expected return; dealers absorbing that flow are short jump risk and must be paid. Claim: the payment is state-dependent, widest when demand outruns delivered vol.
-- **Trigger:** At the close, `spread = VIX − RV20`; enter when positive and in the top tercile of its trailing 2-year distribution, hold 21 days.
-- **Predicted effect:** `IV_entry − RV_fwd21` larger in the top tercile than the middle; null is equality across terciles.
-- **Stage-1 test:** `^VIX` + `^GSPC` since 1993; mean gap per tercile with block-bootstrapped CIs. Falsified if top tercile is indistinguishable from middle.
-- **Candidate structure:** 30-45 DTE short strangle at 15-20 delta.
-- **Data needed:** Free; paid chains (ORATS/CBOE DataShop) for Stage 2 only.
-- **Confounds:** VIX is a variance-swap strip with a skew loading, not tradeable ATM IV, so the gap overstates the ATM premium. Top-tercile days cluster in 2008/2011/2020, and conditioning on elevated RV is mechanically mean-reverting — few regimes, not many observations.
-- **Crowding & decay:** High — the most-harvested premium in the market; assume thinner edge and fatter left tail than any backtest.
+**What lives there:**
 
-#### VRP-02 — Term-structure-conditioned short vol
-- **Name / id:** `vrp_term_structure_gate`
-- **Mechanism:** Contango indicates calm hedging demand and carry paid to sellers; backwardation means spot risk exceeds forward risk, i.e. the premium is compensating risk currently arriving. The claim is conditionality, not that contango is inherently profitable.
-- **Trigger:** `ts = VIX3M/VIX` (or `VX2/VX1`). Short-vol arm when `ts > 1.05`; stand aside or long-vol arm when `ts < 0.98`. 21-day horizon.
-- **Predicted effect:** Conditional mean `IV_entry − RV_fwd` larger and steadier in contango, near zero or negative in backwardation; the 1% tail should differ by state too.
-- **Stage-1 test:** `^VIX`, `^VIX3M`, plus free CBOE settlement files for true `VX2/VX1`. The by-state difference must survive block bootstrap **and** adding lagged RV as a control.
-- **Candidate structure:** VRP-01's strangle, gated by curve state.
-- **Data needed:** Free.
-- **Confounds:** Backwardation is rare and clustered — tiny effective N. Curve state is near-contemporaneous with realized vol, so the gate may be a lagged-RV filter with no independent content.
-- **Crowding & decay:** High; every VIX ETP rebalances on this. Search SSRN/Quantpedia for "variance risk premium term structure" before spending effort.
+| Part | Contents |
+|---|---|
+| Status index | Every candidate id, one line, current status, pipeline position |
+| Active candidates | Full nine-field entries across six families — variance risk premium, events, microstructure, volatility regime, skew, directional |
+| Deferred | Parked candidates and the reason |
+| Rejected / not pursued | Dead entries retained with their cause, so nothing is re-tested by accident |
+| Prioritization | Which to run first, ranked by measured independent-cluster counts from the §2.9b pre-flight |
+| Anti-patterns | Popular retail "strategies" that are not hypotheses, and precisely what each is missing |
+| Adding a candidate | The checklist for a new entry |
 
-### B. Event-Driven
+**The rule that connects the two files.** A candidate may not be promoted to ACTIVE in `Hypotheses.md` until it has cleared the §2.9 pre-flight here — measured cluster count recorded, viability screen applied, disqualifiers checked. Ideas are cheap; the gate is what makes the library worth reading.
 
-#### EV-01 — Single-name earnings IV crush
-- **Name / id:** `earnings_iv_crush_largecap`
-- **Mechanism:** Retail lottery buying and fund event-hedging bid short-dated options into earnings for reasons unrelated to the variance delivered. Market makers warehousing that inventory take real gap risk; the claim is they are overpaid for it on average.
-- **Trigger:** Top ~150 liquid names. On the close before a confirmed report, enter if the first post-earnings expiry's implied move exceeds `1.15 × median(|actual 2-day move|, last 8 reports)`; exit next open.
-- **Predicted effect:** `|actual move| / implied_move` has mean below 1 — a claim on the mean **and** the tail shape.
-- **Stage-1 test:** Free OHLC plus a scraped earnings calendar (hand-verify a sample); compute `|close(t+1)/close(t−1) − 1|` per event against a proxy implied move. Falsified if the ratio centers at or above 1.
-- **Candidate structure:** Short front-expiry strangle or iron condor, defined risk, sized to survive a 3-sigma gap.
-- **Data needed:** Free is marginal; a clean Stage 1 wants historical option prices. Date accuracy is the dominant risk.
-- **Confounds:** Survivorship in any liquid-names list built today; shifted dates and BMO/AMC misclassification invert the trade window. The mean can look good while a few −8-sigma gaps consume cumulative P&L — read the sum, not the average.
-- **Crowding & decay:** High and named; the implied move is publicly quoted. Any edge lives in name selection and structure, not the effect.
-
-#### EV-02 — Scheduled macro: pre-event ramp, event-day move, post-event crush
-- **Name / id:** `macro_event_vol_cycle`
-- **Mechanism:** FOMC/CPI put a known resolution date on the calendar. Front-dated implieds must embed the event's variance and back-dated ones amortize it, so the front ramps into the print and loses that variance discontinuously after. The counterparty wants event protection and is price-insensitive about its decay.
-- **Trigger:** (a) `VIX9D/VIX` rises t−5 to t−1; (b) enter at the t−1 close when `VIX9D/VIX > 1.0`, exit event-day close; (c) event-day `|SPY return|` vs. the priced move proxied by pre-event `VIX/√252`.
-- **Predicted effect:** The ratio ramps then compresses more than on matched days, and mean `|return| / priced move` differs from matched days — **sign unknown a priori**, which is what makes it a real test.
-- **Stage-1 test:** `^VIX9D`, `^VIX`, SPY, plus Fed and BLS calendars (free, ~200 events since 2008). Event-study t−5 to t+3 against days matched on VIX level and weekday; falsified if event windows sit within noise of matched days.
-- **Candidate structure:** Front-vs-back calendar, or an event-day straddle with the side chosen by the test.
-- **Data needed:** Free for Stage 1; intraday quotes for Stage 2, since the crush happens in minutes.
-- **Confounds:** Ratio compression says nothing about P&L — the event-day move can fully offset it. Severe regime dependence: 2022 CPI prints behave nothing like 2015 ones.
-- **Crowding & decay:** Very high; a known dealer trade, already priced. The question is whether residual premium survives spreads.
-
-### C. Market Microstructure / Positioning
-
-#### MS-01 — Monthly OPEX: gamma unwind and strike pinning
-- **Name / id:** `opex_gamma_and_pinning`
-- **Mechanism:** Concentrated monthly OI forces dealer delta-hedging, which is a constraint rather than a view. If dealers are net long gamma into expiry, hedging suppresses realized vol until expiry removes it; near a large-OI strike the same hedging buys weakness and sells strength, pulling spot toward it.
-- **Trigger:** (a) OPEX week = the week containing the third Friday; compare `RV5` there to the following week at equal starting VIX. (b) On expiry morning, take the max-OI strike within ±2% of spot and predict the close lands nearer it than a random walk implies.
-- **Predicted effect:** (a) Lower OPEX-week RV as a paired difference. (b) `|close − strike| / strike_spacing` shifted toward zero vs. a no-pinning simulation.
-- **Stage-1 test:** (a) Free SPY OHLC since 1993, ~390 cycles, paired with VIX control; falsified if the difference is zero or flips sign across decades. (b) Not free-testable; proxy by round-dollar clustering of expiry closes.
-- **Candidate structure:** Short vol into OPEX, flat after; small defined-risk expiry-day butterfly at the strike.
-- **Data needed:** Free for (a); historical OI by strike for (b).
-- **Confounds:** "Dealers are long gamma" is an assumption, unobservable without OI and trade-side data. Weeklies and 0DTE have hollowed out monthly OI since ~2019, so pre-2019 results may not describe today's market. Round-number clustering has non-options causes.
-- **Crowding & decay:** High; gamma dashboards are retail products now, and structural change decays this independently of crowding.
-
-#### MS-02 — 0DTE intraday behavior into the close
-- **Name / id:** `zerodte_late_session_drift`
-- **Mechanism:** 0DTE flow is a large, time-clustered share of SPX volume, and dealer hedging of same-day gamma concentrates in the last 60-90 minutes when gamma per unit premium is largest. Any pattern is a hedging-flow artifact, not a forecast.
-- **Trigger:** SPY 14:30-16:00 ET return and realized vol, conditioned on the 09:30-11:00 return sign and magnitude.
-- **Predicted effect:** Conditional late-session RV or return autocorrelation differs from the mid-session baseline, **and** the difference is larger post-2022 than before.
-- **Stage-1 test:** yfinance intraday caps near 60 days of minute bars — a screen, not a test. The real falsifier is the structural break: if the identical pattern exists in 2015, the 0DTE mechanism is wrong even if the pattern is real.
-- **Candidate structure:** Same-day defined-risk spreads entered ~14:30, closed 15:55.
-- **Data needed:** Minute bars; free coverage inadequate. Weakest free-data candidate here.
-- **Confounds:** Sixty days supports no claim. Time-of-day effects are the most p-hacked area in retail research, and 15:55 costs can exceed the whole measured effect.
-- **Crowding & decay:** Extreme; flow composition changes quarterly.
-
-#### MS-03 — Month-end / quarter-end and index-rebalance flow
-- **Name / id:** `calendar_forced_flow`
-- **Mechanism:** Pension and target-date funds rebalance on fixed dates, and index funds must trade the rebalance close to minimize tracking error. Price-insensitive flow on a public timetable — a mandate, not a view.
-- **Trigger:** (a) Long SPY from close T−3 to close T+1 around month-end, scaled by the trailing month's equity-minus-bond return spread as an imbalance proxy. (b) On S&P quarterly rebalance dates, measure index RV in the window.
-- **Predicted effect:** (a) Window return exceeds the unconditional 4-day mean, with the excess increasing in the equity-bond spread. (b) Rebalance-day RV exceeds matched days.
-- **Stage-1 test:** Free SPY + TLT/IEF since 2002, ~280 month-ends; regress window return on trailing spread. Falsified if the slope is indistinguishable from zero.
-- **Candidate structure:** Short-dated call spread or plain long delta; long straddle into rebalance day for the vol variant.
-- **Data needed:** Free.
-- **Confounds:** The turn-of-month effect is decades old and published — a prime arbitraged-away candidate. It overlaps OPEX, and a few bps of cost erase effects this small.
-- **Crowding & decay:** Very high. Search SSRN/Quantpedia for "turn of the month effect" and check post-publication performance first.
-
-### D. Volatility Regime / Term Structure
-
-#### VT-01 — VIX9D/VIX ratio as a short-horizon regime signal
-- **Name / id:** `vix9d_vix_ratio_regime`
-- **Mechanism:** The 9d/30d implied ratio measures near-term stress relative to medium-term. Spikes are typically driven by immediate hedging demand that decays once the catalyst passes — a flow effect, not information.
-- **Trigger:** Enter on the downward cross of `VIX9D/VIX` through 1.00 following a reading `> 1.10`; strictly causal, no peak-picking. Test the mirror state (`< 0.85`) separately.
-- **Predicted effect:** Forward 5-10 day RV falls faster after a spike than the ratio implies; conditional short-vol payoff better *after* the spike than during it.
-- **Stage-1 test:** Free `^VIX9D` (from 2011) + `^VIX`; bucket by ratio and measure forward 5/10/21-day RV. Falsified if forward RV is monotone in the ratio in the implied direction, i.e. the ratio is unbiased.
-- **Candidate structure:** Short 7-14 DTE strangle on the causal cross.
-- **Data needed:** Free; ~3,500 rows but far fewer independent episodes.
-- **Confounds:** Sample starts 2011, dominated by a secular vol-selling bull market. Spikes are highly autocorrelated — independent episodes number in the dozens.
-- **Crowding & decay:** Moderate-high; widely watched, though this exact conditioning is less standardized than raw VIX.
-
-#### VT-02 — VVIX conditioning of short-vol exposure
-- **Name / id:** `vvix_gate_short_vol`
-- **Mechanism:** VVIX prices vol-of-vol, i.e. surface convexity. When it is elevated relative to VIX the tail of the vol distribution is being bid, plausibly by funds hedging their own short-vol books — selling vol there means selling exactly what is in demand.
-- **Trigger:** Halve or suppress short-vol exposure when `VVIX/VIX` is in the top quintile of its trailing 2-year distribution; full size otherwise.
-- **Predicted effect:** Fatter left tail for short-vol returns in high `VVIX/VIX` states, with materially worse conditional CVaR(5%). A claim about tails, not means.
-- **Stage-1 test:** Free `^VVIX` (from 2007) + `^VIX`; build a proxy short-vol P&L series and compare quantiles across buckets. Falsified if the tail is no worse — **or if it fails to beat a VIX-level-only gate**, the benchmark it must clear.
-- **Candidate structure:** Not standalone; a sizing overlay on VRP-01/VRP-02.
-- **Data needed:** Free.
-- **Confounds:** VVIX spikes are near-contemporaneous with VIX spikes, so the gate may be a lagged-VIX filter with extra steps.
-- **Crowding & decay:** Low as an overlay; the premium it gates is heavily crowded.
-
-#### VT-03 — Realized-vol mean reversion after spikes
-- **Name / id:** `rv_mean_reversion_post_spike`
-- **Mechanism:** RV is strongly mean-reverting at multi-week horizons (the HAR structure). If implied vol anchors too heavily on recent realized — extrapolation bias in the marginal price-setter — post-spike implieds sit above the RV that follows.
-- **Trigger:** Flag when `RV5/RV60 > 2.0`; enter on a strictly causal rule (N days after the flag, never after the observed peak), measuring forward RV20 and IV change over 10-21 days.
-- **Predicted effect:** Forward RV reverts toward RV60 faster than implied vol does, widening the IV−RV gap in the days after the flag.
-- **Stage-1 test:** Free SPY/`^GSPC` OHLC (Yang-Zhang) + `^VIX`; ~8,000 rows, hundreds of spike episodes since 1993. Fit a baseline HAR forecast and test whether VIX's post-spike path sits systematically above it; falsified if VIX decays at or below the HAR-implied rate.
-- **Candidate structure:** Short vol entered 3-5 days after the flag, 21-45 DTE, defined risk.
-- **Data needed:** Free. Best data economics of any candidate here.
-- **Confounds:** RV mean reversion is public and priced; the tradeable claim is that IV does *not* already price it, which is far stronger. Spikes cluster, shrinking effective N.
-- **Crowding & decay:** The underlying fact is public, so any surviving edge lives in the timing rule — precisely the part most prone to overfitting.
-
-### E. Skew / Cross-Sectional
-
-#### SK-01 — Put skew steepness as a conditioning signal
-- **Name / id:** `put_skew_steepness`
-- **Mechanism:** Index put skew is set by persistent one-way protection demand, so steepness may measure hedging intensity more than crash probability. If demand overshoots, downside puts are rich relative to realized downside and the seller is paid to absorb a positioning imbalance.
-- **Trigger:** Proxy with CBOE `^SKEW` (free) or a 25-delta put/call IV differential where chains exist; condition on the top/bottom quintile of the trailing 1-year distribution.
-- **Predicted effect:** Forward 21-day realized downside — semivariance, max drawdown — is **not** higher after high-skew readings, implying an embedded premium.
-- **Stage-1 test:** Free `^SKEW` (from 1990) + SPY; bucket forward drawdown and semivariance by skew quintile. Falsified if high skew genuinely forecasts higher downside — the premium would then be fair and there is no trade.
-- **Candidate structure:** Put ratio or put credit spread, never naked; or skew as a filter on VRP-01.
-- **Data needed:** Free proxy for Stage 1; delta-specific IVs for Stage 2.
-- **Confounds:** `^SKEW` is a poor, non-monotone proxy for tradeable skew. High-skew periods are rare and clustered, and the whole test is a peso problem — short a tail that may simply not have occurred in-sample.
-- **Crowding & decay:** Moderate; institutional territory with far better execution, and retail is the worst-positioned participant for this exposure.
-
-#### SK-02 — Index vs. component vol (dispersion)
-- **Name / id:** `index_component_dispersion`
-- **Mechanism:** Index options carry hedging demand single names do not, so implied correlation embedded in the index may sit above realized. The counterparties are index hedgers and structured-product desks selling single-name vol into autocallables — a flow imbalance with clear institutional origin.
-- **Trigger:** `rho_imp ≈ (IV_idx² − Σ wᵢ²IVᵢ²) / (Σ_{i≠j} wᵢwⱼIVᵢIVⱼ)`; short index vol / long component vol when `rho_imp` is in its top quintile.
-- **Predicted effect:** Realized correlation over the next 21-45 days averages below implied at entry, with the gap widest in the top quintile.
-- **Stage-1 test:** Free data builds only the realized-correlation baseline (index RV vs. cap-weighted component RV, top ~30 names). The premium claim itself **cannot be falsified with free data.**
-- **Candidate structure:** Short index strangle vs. long strangles on 15-30 components, vega-matched — realistically 30-60 legs.
-- **Data needed:** Paid option data required.
-- **Confounds:** Membership and weight drift create severe survivorship bias. Realized correlation jumps toward 1 exactly when the short-index leg hurts most — the trade is short a correlation tail.
-- **Crowding & decay:** High and institutionally mature. More decisively, 30-60 legs of retail transaction cost make it **effectively untradeable in a retail account**; included to mark the boundary of scope.
-
-### F. Conditional Directional
-
-#### DIR-01 — Behavior after vol-adjusted extreme moves and gaps
-- **Name / id:** `sigma_extreme_conditional_drift`
-- **Mechanism:** Two rival mechanisms the test can separate. (a) Forced deleveraging: vol-target and risk-parity funds mechanically sell for 1-5 days after a vol shock, pushing price below fair value → reversal. (b) Information: the move is genuine repricing → continuation. Opposite signs, so the test is informative either way.
-- **Trigger:** `z = daily_return / (RV20/√252)`; condition on `z < −3`, and separately on overnight gap `|gap| > 1.5%`. Measure forward 1/3/5/10-day returns and forward RV.
-- **Predicted effect:** Non-zero conditional mean forward return, sign TBD, plus elevated forward RV regardless of sign — the vol claim is far likelier to survive than the direction claim.
-- **Stage-1 test:** Free SPY/`^GSPC` since 1993, ~100-200 `z < −3` events. Bootstrap the conditional mean against the unconditional distribution and split by date. Falsified if the mean sits inside the unconditional CI or flips sign across halves.
-- **Candidate structure:** Reversal → short put spread, 7-21 DTE; continuation → put debit spread; vol-only → long straddle or an exclusion filter on short-vol candidates.
-- **Data needed:** Free.
-- **Confounds:** Extreme down days cluster inside crises — perhaps 10-15 independent episodes, not 200 — so the conditional mean is dominated by March 2020 and October 2008. Buying after −3 sigma is the trade that works for years and then does not.
-- **Crowding & decay:** Moderate; reversal has weakened as capital entered, but forced deleveraging is structural and will not vanish.
-
-### Prioritization
-
-**Measured, not reasoned.** The counts below come from the §2.9b pre-flight run against free daily data (SPY 1993–2026; the VIX complex from 1990, 2006 or 2011 depending on series). Independent clusters — not raw events — are the sample that powers every statistic.
-
-| id | Family | Data cost | Raw events | **Indep. clusters** | Events/yr | Verdict |
-|---|---|---|---|---|---|---|
-| EV-01 | B | Free dates, paid IV later | ~90/name | **~90/name × universe** | 4/name | **Run first** |
-| DIR-01 | F | Free | 268 | **211** | 8.0 | **Run first** |
-| EV-02 | B | Free calendar | ~270 FOMC / ~400 CPI | ~270 / ~400 | 8 / 12 | Run second |
-| VRP-01 | A | Free | 2,776 | 259 | 83 | Sample fine, effect likely thin |
-| VT-01 | D | Free | 486 | 166 | 31 | Viable; short history (2011+) |
-| MS-03 | C | Free | ~400 | ~400 | 12 | Viable |
-| MS-01 | C | Free / paid OI | ~394 | ~394 | 12 | Viable |
-| VT-03 | D | Free | 1,165 | **86** | 35 | **Demoted** — thin sample |
-| VRP-02 | A | Free | 3,761 | 217 | **188** | **Demoted** — see below |
-| VRP-02b | A | Free | 377 | 57 | 19 | Backwardation arm; marginal |
-| VT-02 | D | Free | n/a | overlay | — | Overlay only, never standalone |
-| SK-01 | E | Free proxy | Low | Low | — | Defer |
-| MS-02 | C | Paid / thin | Unknown | Unknown | — | Defer — untestable on available data |
-| SK-02 | E | Paid | Low | Low | — | Defer — untradeable retail |
-
-**Run first: EV-01, DIR-01.** Then EV-02.
-
-- **EV-01 (earnings)** — the only candidate combining a large sample with an effect big enough to clear the bid/ask. Roughly 90 events per name back to 2002 on free data; across a liquid large-cap universe that is thousands of genuinely independent observations, since one company's report is unrelated to another's. The effect itself — implied vol collapsing once the announcement removes the uncertainty — is large and mechanical. This sits squarely in the middle band of the §2.9c viability screen.
-- **DIR-01 (vol-adjusted extreme moves)** — 268 events that resolve to **211 independent clusters**, a ratio near 1.0 because large moves are isolated point events rather than persistent states. The cleanest event-to-sample ratio of any candidate here, free, and genuinely two-sided so it cannot be talked into confirming itself.
-- **EV-02 (scheduled macro)** — moderate counts (~270 FOMC, ~400 CPI since 1993) but large, concentrated, precisely dated effects. Needs only a release calendar, which the Fed and BLS publish free.
-
-**Two demotions, both produced by measurement rather than argument:**
-
-- **VT-03** was ranked first on reasoning and is **86 independent clusters** on inspection — 1,165 raw events collapsing roughly 14× because elevated realized vol persists for weeks at a time. It clears §3.8's minimum with almost no margin, and any subgroup or sub-period analysis will breach it.
-- **VRP-02** fires **188 days per year — about 75% of all sessions.** Contango is the market's default state, so this is not a trigger; it is a description of normal conditions. §7.7's benchmark test (does the signal beat the always-on version?) would very likely show it adds nothing over simply being short vol continuously. Test it as a *conditioning overlay* on VRP-01, never as a standalone entry.
-
-**The general lesson.** Both demotions came from arithmetic that took five minutes and no outcome data. State-based triggers ("vol is high", "the curve is steep") collapse 10–20× from raw events to independent clusters, because states persist. Point-event triggers (a gap, an earnings release, a scheduled announcement) barely collapse at all. **Prefer point events wherever the mechanism permits** — they buy an order of magnitude in effective sample for free.
-
-### Anti-Patterns — Popular "Strategies" That Are Not Hypotheses
-
-Each fails the Section 2 spec at the same two fields: **no mechanism** (who is on the other side, and why they must trade against you) and **no falsification condition** (what observation would make the author stop).
-
-- **The wheel.** Sell cash-secured puts, take assignment, sell covered calls. Not a hypothesis but a *position*: levered long, short vol, short skew, truncated upside. It makes no claim about *when* premium is rich, so nothing can be tested; "it works until it doesn't" is unfalsifiable. To make it a hypothesis, state when put IV is rich relative to subsequent realized — which is VRP-01, and the wheel adds nothing to it.
-- **0DTE martingale / recovery sizing.** Doubling after a loss reshapes the return distribution without changing its expectation, converting many small wins into one terminal loss. No mechanism, because size is not information. Its falsification test — does expectancy per unit of risk improve? — has a known negative answer before any data is collected.
-- **"Sell premium because theta always wins."** Theta is the accounting rate of time-value decay, offset in expectation by gamma losses under the pricing model; quoting it as income confuses a bookkeeping entry with an edge. The real claim underneath — implied variance exceeds subsequent realized variance on average — is legitimate (family A), but conditional, heavily negatively skewed, and the most harvested premium in the market. Stated unconditionally it names no trigger, no horizon, and no condition under which to stop.
-- **Indicator-crossover systems** (MACD, RSI thresholds, MA crosses, and their options wrappers). They start from a chart pattern with no account of who is forced to trade the other side. The parameter space is large and the transform arbitrary, so finding an in-sample winner by chance is near-certain — which is why they always arrive with a backtest and never a mechanism. If you cannot say who is losing money to you and why they cannot stop, there is no hypothesis.
-- **The shared failure mode.** Most retail options "strategies" are the same trade — unconditionally levered short volatility — wearing different labels, and they correlate near 1 precisely when that matters. Before adding any candidate to the pipeline, regress its returns on a plain short-strangle benchmark. High correlation means it is not new alpha; it is the variance risk premium with extra steps, to be evaluated as a *conditioning rule on VRP*, not as an independent strategy.
-
----
+**Current run order:** EV-01 (single-name earnings) and DIR-01 (vol-adjusted extreme moves), then EV-02 (scheduled macro). Two candidates that ranked highly on reasoning — VT-03 and VRP-02 — were demoted after measurement showed one has only 86 independent clusters and the other fires on roughly 75% of all sessions. See the prioritization section there for the numbers.
 
 ## 11. The Build Order — Sequenced Roadmap
 
@@ -2516,7 +2637,7 @@ If you do nothing else, do this — and note that **counting comes before specif
 
 1. `git init` the structure from §1. Add `pyproject.toml` with pinned `pandas`, `numpy`, `scipy`, `statsmodels`, `yfinance`, `pyarrow`, `py_vollib`, `pyyaml`, `pytest`. Use `uv`; commit the lockfile.
 2. Write the ingest and loader with the §1.4 assertions — including the **feed-liveness** check, which is separate from historical gap detection. Pull SPY, QQQ, IWM and the VIX complex to parquet, with a manifest.
-3. **Run the §2.9b sample-size pre-flight on every candidate in §10 before writing any spec.** Count raw events and independent clusters. This takes minutes, touches no outcome, and burns no trial. Expect it to demote candidates you were confident about — that is the point.
+3. **Run the §2.9b sample-size pre-flight on every candidate in `Hypotheses.md` before writing any spec.** Count raw events and independent clusters. This takes minutes, touches no outcome, and burns no trial. Expect it to demote candidates you were confident about — that is the point.
 4. **Apply the §2.9c viability screen.** Discard anything whose effect is too small to clear an option bid/ask regardless of how good its statistics look, and anything whose trigger fires on more than roughly half of all sessions (that is a regime, not a signal).
 5. Write `research/eventstudy.py`: given trigger dates and a horizon, return the conditional outcome distribution, the unconditional baseline, and the permutation p-value. ~150 lines, and the single highest-leverage file in the repo.
 6. Agree a **trial budget per hypothesis** and wire it into the runner before the first backtest — mandatory if anything automated is executing runs (§4.2).
@@ -2562,3 +2683,38 @@ Ordered by how often they actually kill solo research programs:
 - **Write the post-mortem before deleting anything.** A hypothesis that failed for an interesting reason often contains the next hypothesis.
 - **One new live strategy at a time.** Never add a second while the first is in drawdown-triggered review.
 - **Re-validate live strategies quarterly** on newly available data. An edge that worked is not an edge that works.
+
+### 11.6 The Program-Level Stop Criterion
+
+§9.8 tells you when to kill a *strategy*. Nothing so far tells you when to kill *the project*. That omission is how people spend four years testing hypothesis after hypothesis, each failure feeling like progress toward the one that works.
+
+Set this before you start, for the same reason you pre-register everything else: the decision is uninterpretable once you are inside it and emotionally invested.
+
+**Pre-register three budgets.** Write them into `results/index.jsonl`'s header or a `PROGRAM.md` at the repo root, dated, before the first backtest:
+
+| Budget | Suggested starting value | Rationale |
+|---|---|---|
+| **Candidates** | 40 specs reaching stage 1 | The §0.2 funnel's own input count. If 40 pre-flight survivors yield nothing, the funnel is telling you something. |
+| **Calendar** | 12 months of part-time work | Long enough to be fair, short enough to notice. |
+| **Money** | A stated cap on data + infrastructure | Options data is the only large line item; decide the ceiling before the first purchase, not after the third. |
+
+Whichever binds first triggers a **mandatory review**, not an automatic quit.
+
+**The review asks three questions, in order.**
+
+1. **Did anything reach stage 2?** If not a single candidate cleared §3.8 in 40 attempts, the problem is upstream of your statistics — most likely you are generating hypotheses from the same narrow well, or your triggers are all state-based and sample-starved (§2.9b). Fix the generator, not the tests.
+2. **Did things reach stage 2 and die there consistently?** That is a cost problem, not an edge problem. Every survivor dying to spread and theta means your candidates live in effects too small to clear retail transaction costs. The honest response is to move to effects with larger magnitudes — events rather than conditions (§2.9c) — or to accept that your cost structure excludes this class of trade.
+3. **Did something pass everything and then fail live?** That is the most expensive outcome and the most informative. Go to §9.7's reconciliation before concluding anything: a live failure caused by fills or signal-timing divergence is a fixable engineering problem, while one where the effect simply stopped is genuine decay, and decay is evidence the mechanism was real but crowded.
+
+**What "stop" is allowed to mean.** Stopping is not one decision. Ranked by how often it is the right one:
+
+- **Change the class of edge you are hunting.** The most common correct outcome. Frequently the honest finding is that you cannot beat the market's pricing but *can* harvest a risk premium — which is a real, defensible activity with a completely different risk profile and sizing discipline. the anti-patterns section of `Hypotheses.md` is emphatic that most retail options strategies are levered short volatility mislabelled as edge; discovering that this describes you is a finding, not a failure, provided you then size it as the risk transfer it is.
+- **Reduce scope.** Keep one strategy running at small size and stop researching. A single validated setup traded patiently is a perfectly good outcome and is exactly what §0.1 defines as done.
+- **Stop entirely.** Redeploy the capital to something passive and the time to something else.
+
+**The sunk-cost trap, stated precisely.** The pipeline you have built has value independent of whether any hypothesis survived — the data layer, the event-study engine, the discipline. That value is already banked. It is not a reason to keep testing, and "I've already built all this" is not evidence about the next hypothesis. The 41st candidate has the same prior as the first.
+
+**The one asymmetry worth respecting.** A program that produces no tradeable edge but a rigorous, honest record of 40 dead hypotheses has cost you time and taught you what does not work. A program that abandons its own gates in year two because nothing has passed will produce a "strategy," and that strategy will lose money with the confidence of something that passed a test you had already corrupted. Of the two failure modes, only the second is expensive.
+
+> **Rule.** When a budget binds, run the review and write the verdict down. Extending a budget is permitted exactly once, must be pre-registered like anything else, and requires naming what you will do differently — not simply more of the same.
+
