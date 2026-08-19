@@ -43,6 +43,7 @@ The entire process is a filter with a brutal survival rate. Plan for it, and do 
 | Stage | Count | What kills things here |
 |---|---|---|
 | Raw ideas brainstormed | ~40 | Vague, unmeasurable, no mechanism |
+| Survive sample/viability pre-flight (§2.9) | ~20 | Too few independent clusters; effect too small to clear a spread; "trigger" fires most days |
 | Written to formal spec | ~12 | Can't be computed point-in-time; no falsification condition |
 | Pass stage-1 (underlying only) | ~4 | No effect vs unconditional baseline; effect is noise |
 | Pass anti-overfitting gauntlet | ~2–3 | Parameter spike, one-year wonder, dies to costs |
@@ -60,6 +61,8 @@ Everything downstream in this document is an implementation of these. When a pro
 **II. Conditional versus unconditional, never versus zero.** "SPY goes up after my signal" is meaningless: SPY goes up anyway. The only question is whether the conditional distribution differs from the unconditional one by more than sampling noise.
 
 **III. No mechanism, no trade.** A statistically beautiful result with no story about who is paying you is far more likely to be a survivor of your own search than a real anomaly. The story test is a hard gate, not a nicety.
+
+**III½. Count the sample before you write the spec.** Independent events, not rows, are what every statistic spends. A trigger describing a persistent state collapses 10–20× from raw events to independent observations, and the check costs minutes with no outcome data. Candidates die here for free that would otherwise consume weeks. See §2.9.
 
 **IV. Count your trials, honestly.** Every backtest you ever run — including the ones you abandoned after ten seconds — inflates the best result you will find. The single most common way a solo researcher destroys themselves is quietly not counting.
 
@@ -144,9 +147,9 @@ Acquire in this order; each layer must pass validation before you buy the next. 
 
 | # | Layer | Why now | Cheapest viable source |
 |---|---|---|---|
-| a | Daily OHLCV + volume, unadjusted + adjustment factors | Universe construction, realized vol, all signal features | yfinance / Stooq ($0) |
-| b | Intraday bars (1m/5m) | Entry timing, opening-range and gap studies, drift within holding window | Polygon Starter, Databento, Alpaca ($0–$30/mo) |
-| c | VIX, VIX9D, VIX3M, VIX6M, VVIX, term-structure ratios | Most durable regime conditioner; free and deep | CBOE website CSVs ($0, history to 1990s/2007+ by index) |
+| a | Daily OHLCV + volume, unadjusted + adjustment factors | Universe construction, realized vol, all signal features | yfinance / Stooq (\$0) |
+| b | Intraday bars (1m/5m) | Entry timing, opening-range and gap studies, drift within holding window | Polygon Starter, Databento, Alpaca (\$0–\$30/mo) |
+| c | VIX, VIX9D, VIX3M, VIX6M, VVIX, term-structure ratios | Most durable regime conditioner; free and deep | CBOE website CSVs (\$0, history to 1990s/2007+ by index) |
 | d | **IV history without chains** | Lets you test 80% of vol hypotheses before paying for chains | See below |
 | e | Full historical chains: bid/ask/OI/volume/greeks per strike | Only stage where structure PnL is real | ORATS / Polygon Options / IVolatility ($$) |
 | f | Event calendars: earnings, FOMC, CPI, OPEX, dividends, splits | Conditioning variable *and* a data-integrity necessity | Mixed, see 1.3 |
@@ -154,7 +157,7 @@ Acquire in this order; each layer must pass validation before you buy the next. 
 **(d) The cheap-IV-history trick, in priority order:**
 1. **CBOE volatility indices as underlying-specific IV proxies.** VIX (SPX 30d), VXN (NDX), RVX (RUT), VXAPL/VXAZN/VXGS-style single-name indices where still published, OVX (oil), GVZ (gold), EVZ (FX). Free daily history from cboe.com. These *are* 30-day constant-maturity IV.
 2. **VIX term structure** from CBOE futures settlement files (free daily CSVs per contract) — gives you contango/backwardation, a stronger conditioner than VIX level.
-3. **ETF-proxy realized-vs-implied**: compute realized vol yourself (Yang-Zhang or Garman-Klass from OHLC) and pair with the index IV above to get a variance-risk-premium series with $0 spend.
+3. **ETF-proxy realized-vs-implied**: compute realized vol yourself (Yang-Zhang or Garman-Klass from OHLC) and pair with the index IV above to get a variance-risk-premium series with \$0 spend.
 4. **Free/cheap IV-summary datasets**: ORATS sells a *summary* file (per-symbol daily IV30/IV60, skew, VRP) far cheaper than full chains — buy this before full chains. DoltHub `post-no-preference/options` has historical chain snapshots for free; treat as exploratory only.
 5. **Current-chain accumulation**: start a daily cron on day one that snapshots free chains (yfinance `Ticker.option_chain`, or Tradier sandbox) at a fixed time and appends to parquet. This is worthless today and priceless in nine months. Cost: zero. Start it before anything else.
 
@@ -164,8 +167,8 @@ Acquire in this order; each layer must pass validation before you buy the next. 
 
 | Vendor | What you get | Granularity | History | Cost (as of writing, verify) | Gotchas / verdict |
 |---|---|---|---|---|---|
-| **yfinance** | Equity/ETF OHLCV, actions, *current* option chain | Daily; 1m for ~30d | Decades daily | $0 | Unofficial scrape, rate-limited, breaks on Yahoo changes, adjusted-only quirks, survivorship-biased (delisted tickers gone), no options history. **Use: prototyping + daily chain snapshotting.** |
-| **Stooq** | OHLCV CSV, global | Daily | Long | $0 | Good redundancy source to cross-check yfinance. No options. |
+| **yfinance** | Equity/ETF OHLCV, actions, *current* option chain | Daily; 1m for ~30d | Decades daily | \$0 | Unofficial scrape, rate-limited, breaks on Yahoo changes, adjusted-only quirks, survivorship-biased (delisted tickers gone), no options history. **Use: prototyping + daily chain snapshotting.** |
+| **Stooq** | OHLCV CSV, global | Daily | Long | \$0 | Good redundancy source to cross-check yfinance. No options. |
 | **Alpha Vantage** | OHLCV, some indicators, limited options | Daily/intraday | Moderate | Free tier heavily rate-limited; paid tiers exist | Throttling makes bulk ingest painful. **Trap for anything bulk.** |
 | **Polygon.io — Stocks** | Trades, quotes, aggregates, splits/divs, tickers incl. delisted | Tick → daily | ~15–20y aggs | Paid tiers, low-hundreds/mo at the high end | Genuinely good, well-documented REST + flat files. Delisted-ticker endpoint fixes survivorship. |
 | **Polygon.io — Options** | Historical option aggregates, trades, quotes, snapshots | Tick → daily | Several years | Separate options subscription | Real option data at a solo-quant price point. Check whether *your* tier includes historical quotes vs trades only — trades-only cannot price a spread. |
@@ -175,7 +178,7 @@ Acquire in this order; each layer must pass validation before you buy the next. 
 | **IVolatility** | IV surfaces, historical chains, greeks | Daily | Deep | Per-dataset, quote-based | Priced for institutions; one-off historical extracts can be affordable. Get a quote before assuming. |
 | **Tradier** | Brokerage API: live chains, greeks, some history | Live/intraday | Shallow | Cheap/free with account; sandbox free | Excellent for *forward* collection and live scanning. Not a backtest source. |
 | **IBKR** | Live + limited historical bars, option chains | Intraday | Limited by pacing rules | Account required | Harsh pacing limits; not a bulk historical source. Fine as execution + live quotes. |
-| **DoltHub / free options datasets** | Community-collected historical chain snapshots | Daily EOD | Several years | $0 | Gaps, inconsistent coverage, unclear snapshot timestamps. **Exploratory only — never a published result's sole source.** |
+| **DoltHub / free options datasets** | Community-collected historical chain snapshots | Daily EOD | Several years | \$0 | Gaps, inconsistent coverage, unclear snapshot timestamps. **Exploratory only — never a published result's sole source.** |
 
 Honest summary: the traps are Alpha Vantage for bulk, free datasets as a result basis, and any tier that gives options *trades* without *quotes*. The realistic path is yfinance + CBOE free (layers a, c, d) → Polygon Stocks (b) → ORATS summary → ORATS/Polygon/CBOE chains for the two or three symbols your hypotheses actually need.
 
@@ -217,6 +220,8 @@ moneyness = strike / close_raw           # never close_adj
 **NBBO vs consolidated tape.** OPRA NBBO is the best bid/offer across all options exchanges at an instant; a vendor's "consolidated" or single-exchange quote may be neither best nor synchronous. Trade prints tell you where someone traded, not where you could have. Prefer NBBO quotes; if you only have trades, you cannot backtest a multi-leg structure honestly.
 
 **Missing days.** Compare your date index against `pandas_market_calendars.get_calendar("XNYS").schedule(...)`. Any missing session is a bug until proven a holiday. A half-day (early close 13:00 ET) must be handled, not silently averaged.
+
+**Feed liveness is not the same check as historical completeness.** A series can be gap-free for twenty years and still be *dead right now* — the vendor quietly stopped updating it. This is invisible to every gap test, because the gap is at the end. Observed in practice: Yahoo carries `^VIX9D` and `^VIX3M` complete through history but frozen a month stale, while `^VIX` and `SPY` stay current. A backtest is unaffected; a live scanner silently trades on a flat-lining input. Assert staleness explicitly on every load — `(today - last_session).days <= max_stale_days` — and make the loader **raise**, not warn. Record `stale_days` per series in the manifest so the condition is visible before it matters.
 
 ### 1.5 Storage and loader pattern
 
@@ -449,7 +454,16 @@ trigger:
   inputs: [spx_spot, opex_friday_chain_oi, gex_estimate]
   threshold: {distance_pct: 0.0035, gex_sign: positive}
 
-universe: [SPX]
+# Estimation and trading universes are separate on purpose. Estimate the
+# effect where the sample is (wide), trade it where the liquidity is (narrow).
+# The subgroup check is mandatory: an effect that vanishes in the names you
+# actually intend to trade is not tradeable, however strong it is in aggregate.
+estimation_universe: [SPX]
+trading_universe: [SPX]
+subgroup_check: >
+  Effect must retain >=60% of its magnitude, with unchanged sign, when
+  restricted to trading_universe alone.
+
 entry_timing: Wednesday OPEX week, 15:45-15:55 ET, mid minus half-spread
 holding_period: to Friday 09:30 ET settlement-adjacent close
 exit_rule: >
@@ -483,11 +497,13 @@ capacity_estimate: >
   SPX Friday ATM straddle depth supports ~50-150 contracts without
   >0.05 vol slippage; far above account size. Not capacity-constrained.
 
-sample_size_expected: ~12 events/year x 9 years = ~108 non-overlapping
+sample_size_expected: {raw_events: 108, independent_clusters: 96, per_year: 12, measured_utc: 2026-08-18}
 slice_plan: {stage1: STAGE1, stage2: HOLDOUT}
 ```
 
-Required fields, no exceptions: `id, name, registered_utc, rationale, mechanism, trigger (with computable_pit), universe, entry_timing, holding_period, exit_rule, outcome_variable, predicted_direction, prior_effect_size, falsification, data_required, known_confounds, expected_decay, capacity_estimate`.
+Required fields, no exceptions: `id, name, registered_utc, rationale, mechanism, trigger (with computable_pit), estimation_universe, trading_universe, subgroup_check, entry_timing, holding_period, exit_rule, outcome_variable, predicted_direction, prior_effect_size, falsification, data_required, known_confounds, expected_decay, capacity_estimate, sample_size_expected`.
+
+`sample_size_expected` must carry the measured cluster count from the pre-flight (2.9b), not an estimate. A spec whose sample was never counted cannot be registered.
 
 ### 2.8 Pre-Registration Enforcement, Mechanically
 
@@ -507,9 +523,11 @@ Philosophy does not stop you from moving a threshold after seeing a result. Tool
 
 Implementation notes: compute the hash over a *canonicalized* dump (sorted keys, stripped comments) so formatting churn does not invalidate a spec. The runner walks `git log --follow -- hypotheses/H-2026-007.yaml`, hashes each blob version, and requires the working-tree hash to be in that set — meaning the exact spec you are testing was committed at some point *before* this run. A pre-commit hook rejects any commit that modifies a spec whose id already appears in `results/`, unless the spec's `id` is incremented (`H-2026-007b`) and the original is retired with a cause of death. Results directories are keyed by spec hash, so a changed spec cannot overwrite an old result — you get two results and an obvious paper trail of how many variants you tried. That count feeds the multiple-testing correction.
 
-### 2.9 The Reality Gate: Disqualifiers
+### 2.9 The Reality Gate: Disqualifiers, Sample Pre-Flight, Viability Screen
 
-Apply before writing the spec. Any single hit kills the idea.
+Three checks, all applied **before writing the spec**. Together they are the cheapest filter in this document: they consume no outcome data, burn no trial, never touch the holdout, and take an afternoon for a whole batch of candidates.
+
+**(a) Disqualifiers.** Any single hit kills the idea.
 
 | Disqualifier | Test |
 |---|---|
@@ -523,6 +541,48 @@ Apply before writing the spec. Any single hit kills the idea.
 | Capacity below account size | Effect lives in options with <50 contracts daily volume or >15% spreads |
 | Sample too small | Fewer than ~50 non-overlapping events available in all of history |
 | Already registered | Substantively identical to an existing registry entry, alive or dead |
+
+**(b) Sample-size pre-flight.** Run the trigger against history and count events — *never the outcome.* Counting trigger frequency is not measuring an effect, so this is legitimate pre-registration work (the spec's `sample_size_expected` field demands the number anyway) and it costs nothing.
+
+Report three figures per candidate:
+
+| Figure | Definition | Why it matters |
+|---|---|---|
+| Raw events | Bars where the trigger fires | The flattering number. Ignore it. |
+| **Independent clusters** | Events separated by more than ~1.4× the holding window | The real sample. This is what powers every statistic. |
+| Events per year | Raw ÷ years | A trigger firing >150×/yr is a *regime*, not a signal — see the viability screen |
+
+```python
+def clusters(dates, hold_days):
+    """Events inside one holding window are one observation, not many."""
+    d = sorted(dates); n, last = 1, d[0]
+    for x in d[1:]:
+        if (x - last).days > hold_days * 1.4:
+            n += 1; last = x
+    return n
+```
+
+The ratio of raw events to clusters is routinely **10–20×** for state-based triggers ("vol is high", "curve is in contango") because such states persist for weeks. It is near **1×** for point events (a gap, an earnings release). A candidate that cannot produce ≥50 events *and* ≥20 clusters (§3.8) after the holdout is carved out is dead here, before it consumes a spec.
+
+> **Rule.** Measure the sample before you write the spec. Anything else spends effort on candidates that were arithmetically incapable of producing a trustworthy answer.
+
+**(c) The viability screen.** Sample size alone decides nothing. Three quantities interact, and a candidate must clear all three:
+
+> **sample size × effect size × cost tolerance**
+
+Frequent tiny edges cannot pay the option bid/ask. Rare large edges have no sample to establish they are real. Viable candidates sit in the middle band.
+
+| Family | Independent obs. | Typical effect | Survives the spread? |
+|---|---|---|---|
+| Overnight vs intraday decomposition | ~8,400/symbol | A few bps/day | **No** — spread exceeds the edge |
+| Weekly expiry effects | ~1,700 | Small | Marginal |
+| Earnings IV crush | ~90/name × universe | **Large** (IV falls 30–50% overnight) | **Yes** |
+| Scheduled macro (FOMC, CPI) | 270 / 400 | Large, concentrated | Yes |
+| Volatility-regime states (VIX-conditioned) | **~90** | Moderate | Maybe — but the sample is the binding constraint |
+
+This is why an effect with beautiful statistics can be worthless and a noisier effect can be tradeable. Options charge a fixed toll per round trip; an edge smaller than the toll is not an edge regardless of its t-statistic. Evaluate this **before** any work, not at §6 when the options backtest finally reveals it.
+
+**Organize idea generation by event family, not by cleverness.** The families above differ by more than 100× in available sample using the *same free data*. Sorting candidates by achievable observation count is the highest-leverage filter in the whole process, and it precedes every source in §2.2–2.6.
 
 ### 2.10 Triage Rubric
 
@@ -642,7 +702,7 @@ Enumerate these on every test. Most are silent — the backtest just looks good.
 
 1. **Same-bar entry.** Trigger computed from the *close* of bar *i*, filled at the close of bar *i*. Structurally impossible for anything but a market-on-close order placed before you knew the close. Enter at *i+1* open.
 2. **Full-series indicators, then slice.** `df['z'] = (x - x.mean()) / x.std()` uses the whole sample's moments. Every normalization must be rolling/expanding.
-3. **Adjusted prices restating history.** Split/dividend adjustment rewrites all prior bars. A $50 threshold, a share-price filter, or a "penny stock" screen evaluated on adjusted prices is evaluating a number that did not exist at the time. Use raw prices for filters, adjusted for returns.
+3. **Adjusted prices restating history.** Split/dividend adjustment rewrites all prior bars. A \$50 threshold, a share-price filter, or a "penny stock" screen evaluated on adjusted prices is evaluating a number that did not exist at the time. Use raw prices for filters, adjusted for returns.
 4. **Revised macro data.** CPI, NFP, GDP are revised for years. Backtesting on the current vintage is lookahead. Use point-in-time vintages (ALFRED) or exclude macro-level triggers.
 5. **Event calendars known too early.** Earnings dates get moved; index rebalance announcements have a publication timestamp. Use the announcement time, not the event time.
 6. **`.shift()` sign errors.** `shift(1)` moves data *forward* (yesterday's value onto today) — correct for features. `shift(-1)` pulls the future back — correct only for constructing outcomes. Mixing them up is the single most common leak. Assert on it.
@@ -796,6 +856,8 @@ Read the last two columns again. **A Sharpe of 1.6 on three years of data, found
 Two consequences drive the rest of this section: (1) you must know `N`, which means logging it; (2) you must have tests that noise fails and mechanism passes, which means adversarial controls, not more statistics on the same sample.
 
 ### 4.2 Trial Accounting
+
+> **When a machine runs the backtests, this section becomes the binding constraint.** The arithmetic in 4.1 assumes trial counts bounded by human patience — a few dozen. An automated researcher can run two hundred variants in an hour, which pushes the expected best-of-N noise Sharpe from ~2.1 to ~2.9 and makes almost any in-sample result unremarkable. Two defenses are mandatory under automation: (i) the variant list is enumerated and committed *before* the first run, so the denominator is fixed in advance rather than discovered afterwards; (ii) a hard **trial budget per hypothesis**, agreed up front and enforced by the runner, which refuses to execute run N+1. Speed without a budget does not accelerate discovery — it manufactures false positives faster.
 
 **Rule: every backtest execution appends one line to `trials.jsonl`, before you look at the result. Including the ones you abandon.**
 
@@ -1225,7 +1287,7 @@ Note the unit conventions: py_vollib's analytical `theta` is already divided by 
 
 ### 5.9 The pre-trade Greek budget
 
-Before every structure is approved, state its Greeks **per $1,000 of defined risk** and check that the dominant P&L driver is your edge Greek.
+Before every structure is approved, state its Greeks **per \$1,000 of defined risk** and check that the dominant P&L driver is your edge Greek.
 
 ```python
 # Attribution over a simulated hold, using Stage-1 empirical paths
@@ -1281,7 +1343,7 @@ for k, v in contrib.items():
 
 A statistically real edge in the underlying dies in options more often than it survives. The three killers:
 
-- **Spread crossing.** A 5c-wide market on a $0.60 option is an 8.3% round-trip haircut per leg. A signal with a 0.15% daily edge on the underlying, levered 5x by delta, produces ~0.75% — less than one crossing.
+- **Spread crossing.** A 5c-wide market on a \$0.60 option is an 8.3% round-trip haircut per leg. A signal with a 0.15% daily edge on the underlying, levered 5x by delta, produces ~0.75% — less than one crossing.
 - **Theta/vega drag.** You are long or short a decaying, mean-reverting risk premium that has nothing to do with your signal. If your directional edge is 20 bps/day and you are paying 45 bps/day of theta on a 30-DTE ATM option, the wrapper is the trade, not the signal.
 - **Expiry mismatch.** Stage-1 edges are usually defined on a horizon ("5-day forward return"). Options have a fixed maturity, a path-dependent payoff, and a strike. A signal that predicts *mean* forward return may say nothing about whether spot crosses your strike before your expiry.
 
@@ -1359,20 +1421,20 @@ half_spread = (ask - bid) / 2
 ```
 `k = 0` is mid, `k = 1` is paying the full quoted market. `k` is an **explicit swept parameter**, not a constant you set once and forget.
 
-**Spread as a % of premium is what actually hurts.** A 5c market is trivial on a $12 option and fatal on a $0.35 one:
+**Spread as a % of premium is what actually hurts.** A 5c market is trivial on a \$12 option and fatal on a \$0.35 one:
 
 | Option mid | Bid/ask | Spread % of mid | Round-trip at k=1 |
 |---|---|---|---|
-| $12.00 | 11.95/12.05 | 0.8% | 0.8% |
-| $2.50 | 2.45/2.55 | 4.0% | 4.0% |
-| $0.60 | 0.55/0.65 | 16.7% | 16.7% |
-| $0.20 | 0.15/0.25 | 50% | 50% |
+| \$12.00 | 11.95/12.05 | 0.8% | 0.8% |
+| \$2.50 | 2.45/2.55 | 4.0% | 4.0% |
+| \$0.60 | 0.55/0.65 | 16.7% | 16.7% |
+| \$0.20 | 0.15/0.25 | 50% | 50% |
 
-This is why "buy cheap OTM wings" strategies backtest beautifully and trade catastrophically. Any strategy whose P&L lives in options under ~$0.50 is presumptively unbacktestable at retail.
+This is why "buy cheap OTM wings" strategies backtest beautifully and trade catastrophically. Any strategy whose P&L lives in options under ~\$0.50 is presumptively unbacktestable at retail.
 
 **Multi-leg spreads.** Verticals, strangles and butterflies often fill better than the sum of legs: they route to a complex-order book (CBOE COB), the market maker nets the risk, and price improvement inside the sum-of-legs market is routine. **Do not model this benefit.** Model each leg independently at the same `k`. If the strategy only works when you assume complex-order price improvement, it does not work. Any improvement you actually get live is unbooked upside.
 
-**Minimum tick.** Penny Interval Program names quote $0.01 throughout; otherwise $0.05 below $3.00 and $0.10 above. Round fills to the tick *away from you*. Index options (SPX) are $0.05/$0.10. This alone can eat the entire modeled edge of a strategy that assumes sub-penny precision.
+**Minimum tick.** Penny Interval Program names quote \$0.01 throughout; otherwise \$0.05 below \$3.00 and \$0.10 above. Round fills to the tick *away from you*. Index options (SPX) are \$0.05/\$0.10. This alone can eat the entire modeled edge of a strategy that assumes sub-penny precision.
 
 **Quoted size ≠ available size.** NBBO size is frequently 1–10 contracts and is not a promise. Size beyond the top of book walks the market. Cap per-trade size (6.7) and, if you must trade more than displayed size, add a second `k` unit for the excess.
 
@@ -1393,31 +1455,31 @@ Plot net P&L vs `k` continuously. A real edge decays roughly linearly with a sha
 
 | Item | Typical retail | Notes |
 |---|---|---|
-| Broker commission | $0.15–$0.65 / contract | Tastytrade ~$1.00 open / $0 close; IBKR tiered $0.15–$0.65; Schwab/Fidelity $0.65 |
-| OCC clearing fee | ~$0.02 / contract | Capped per trade |
-| Exchange fees | $0.00–$0.50 / contract | Venue and maker/taker dependent; index options higher |
-| ORF (Options Regulatory Fee) | ~$0.02–$0.04 / contract | |
-| FINRA TAF | ~$0.00279 / contract | Sells only |
-| SEC Section 31 | ~$27.80 per $1M | Sells only, on premium proceeds |
-| Assignment / exercise | $0–$20 per event | Often flat per occurrence |
+| Broker commission | \$0.15–\$0.65 / contract | Tastytrade ~\$1.00 open / \$0 close; IBKR tiered \$0.15–\$0.65; Schwab/Fidelity \$0.65 |
+| OCC clearing fee | ~\$0.02 / contract | Capped per trade |
+| Exchange fees | \$0.00–\$0.50 / contract | Venue and maker/taker dependent; index options higher |
+| ORF (Options Regulatory Fee) | ~\$0.02–\$0.04 / contract | |
+| FINRA TAF | ~\$0.00279 / contract | Sells only |
+| SEC Section 31 | ~\$27.80 per \$1M | Sells only, on premium proceeds |
+| Assignment / exercise | \$0–\$20 per event | Often flat per occurrence |
 
-Model **$0.65/contract per side** as a conservative all-in default, i.e. **$1.30 round trip per contract**, plus assignment fees where triggered.
+Model **\$0.65/contract per side** as a conservative all-in default, i.e. **\$1.30 round trip per contract**, plus assignment fees where triggered.
 
-**Worked example — cheap options.** Strategy buys a $0.40 call (0.35/0.45), sells at a modeled $0.52 average.
+**Worked example — cheap options.** Strategy buys a \$0.40 call (0.35/0.45), sells at a modeled \$0.52 average.
 
-- Gross edge: $0.12 × 100 = **+$12.00/contract**
-- Fill at k=1.0: buy $0.45, sell $0.47 → realized $0.02 × 100 = **+$2.00**
-- Commissions/fees: −$1.30
-- **Net: +$0.70 per contract**, a 1.7% return on the $40 premium — and one $0.05 tick of slippage or one adverse quote makes it negative.
+- Gross edge: \$0.12 × 100 = **+\$12.00/contract**
+- Fill at k=1.0: buy \$0.45, sell \$0.47 → realized \$0.02 × 100 = **+\$2.00**
+- Commissions/fees: −\$1.30
+- **Net: +\$0.70 per contract**, a 1.7% return on the \$40 premium — and one \$0.05 tick of slippage or one adverse quote makes it negative.
 
-The same $0.12 gross edge on a $4.00 option with a 5c market nets $0.07 × 100 − $1.30 = **+$5.70**. Frictions are close to fixed per contract; edge must scale with premium, not with contract count.
+The same \$0.12 gross edge on a \$4.00 option with a 5c market nets \$0.07 × 100 − \$1.30 = **+\$5.70**. Frictions are close to fixed per contract; edge must scale with premium, not with contract count.
 
 ### 6.5 Position lifecycle edge cases
 
 - **Early assignment (American).** Short calls are the danger. Rule: **early exercise of a call is rational when the dividend exceeds the remaining time value of the corresponding same-strike put** — i.e. `D > P_time_value + K*r*τ`. Simulate assignment on the business day before ex-dividend for any short call meeting that test (assume 100% assignment if deep ITM and time value < dividend; probabilistic otherwise). Short deep-ITM puts get assigned when time value approaches zero and the carry favors it. Ignoring this systematically overstates short-call P&L.
-- **Pin risk.** Spot within ~$0.25 of the strike at expiry: you do not know your assignment quantity until Saturday. Model it as a coin flip on assignment and charge a Monday-gap cost on the resulting unhedged shares.
+- **Pin risk.** Spot within ~\$0.25 of the strike at expiry: you do not know your assignment quantity until Saturday. Model it as a coin flip on assignment and charge a Monday-gap cost on the resulting unhedged shares.
 - **Settlement style — the classic bug.** SPX is **European, cash-settled**; the monthly (third-Friday) contract settles **AM** against **SET**, the opening print of the constituents, and stops trading the Thursday before. SPXW weeklies/EOM settle **PM** on the close. SPY is **American, physically settled, PM**. Backtesting a "monthly SPX" strategy against Friday's close instead of Friday's SET open is a real, silent, sometimes multi-percent error. Encode `settlement_style` and `settlement_time` per root and expiry class.
-- **Exercise by exception.** OCC auto-exercises long options **$0.01 or more ITM** at expiry. Model it — do not let ITM longs expire worthless in your engine.
+- **Exercise by exception.** OCC auto-exercises long options **\$0.01 or more ITM** at expiry. Model it — do not let ITM longs expire worthless in your engine.
 - **Expiry-day rolls.** Decide and hardcode: close at N DTE (typical: 7–21) rather than holding into gamma. Rolls are two fills, so charge two `k`s and two commissions.
 - **Holidays and half days.** Use `pandas_market_calendars`; half days (day after Thanksgiving, Christmas Eve) have 1:00pm closes and thinner books. Never assume 252 or a fixed weekly cadence.
 - **Corporate actions / adjusted options.** Splits, special dividends, mergers and spinoffs create non-standard deliverables (e.g. 100 shares + $X cash, or a `1` suffixed root). Their quotes are wide, their OI is stale, and their greeks are wrong under a standard 100-share model. **Exclude adjusted contracts entirely** — filter on the non-standard-deliverable flag, and independently drop any root whose strike grid contains non-standard increments. You cannot trade them reliably live either, so excluding them costs nothing and removes a large class of fake P&L.
@@ -1431,18 +1493,18 @@ The same $0.12 gross edge on a $4.00 option with a 5c market nets $0.07 × 100 �
 |---|---|
 | Long option / debit spread | Net debit paid |
 | Credit vertical | (Width × 100) − net credit |
-| Naked short put | `max(0.20·S − OTM_amt, 0.10·K) · 100 + premium`, min ~$50/contract |
+| Naked short put | `max(0.20·S − OTM_amt, 0.10·K) · 100 + premium`, min ~\$50/contract |
 | Naked short call | `max(0.20·S − OTM_amt, 0.10·S) · 100 + premium` |
 | Short strangle | Margin on the greater side + premium of the other side |
 | Cash-secured put | `K × 100` |
 
-Portfolio margin (min $100k equity) replaces this with a risk-array shock (roughly ±15% for broad indices, wider for singles) and typically cuts strangle requirements 2–4x — but it also introduces path-dependent margin *expansion* in a selloff. If you model PM, you must also model the margin call that forces liquidation at the worst point. Default to Reg-T.
+Portfolio margin (min \$100k equity) replaces this with a risk-array shock (roughly ±15% for broad indices, wider for singles) and typically cuts strangle requirements 2–4x — but it also introduces path-dependent margin *expansion* in a selloff. If you model PM, you must also model the margin call that forces liquidation at the worst point. Default to Reg-T.
 
-**Worked example — short strangle.** SPY at $500, sell the 470P/530C 45-DTE strangle for $4.00 total credit ($400/contract). Suppose the strategy nets $250/contract per cycle, ~8 cycles/year.
+**Worked example — short strangle.** SPY at \$500, sell the 470P/530C 45-DTE strangle for \$4.00 total credit (\$400/contract). Suppose the strategy nets \$250/contract per cycle, ~8 cycles/year.
 
-- Premium-based: $250 / $400 = **62.5% per cycle → ~500%/yr**. Absurd, and exactly what naive backtests print.
-- Reg-T margin, put side: `0.20 × 500 − 30 = $70/share → $7,000`, `+ $400` premium ≈ **$7,400**, plus the call-side premium. Say **$7,700** held.
-- Return: $250 / $7,700 = **3.2% per cycle → ~26%/yr** before you hold any buffer.
+- Premium-based: \$250 / \$400 = **62.5% per cycle → ~500%/yr**. Absurd, and exactly what naive backtests print.
+- Reg-T margin, put side: `0.20 × 500 − 30 = \$70/share → \$7,000`, `+ \$400` premium ≈ **\$7,400**, plus the call-side premium. Say **\$7,700** held.
+- Return: \$250 / \$7,700 = **3.2% per cycle → ~26%/yr** before you hold any buffer.
 - Hold a realistic 2x margin buffer against expansion and it is **~13%/yr**.
 
 That is a **~20–40x** difference between the premium-based and the capital-honest number. Compute margin per position, per day, take the peak, and denominate every return in Section 7 on it.
@@ -1455,13 +1517,13 @@ Every filter below runs *inside* the backtest at trade time and must be re-imple
 |---|---|
 | Open interest (contract) | ≥ 500 (indices/mega-caps ≥ 1,000) |
 | Volume (contract, that day) | ≥ 50 |
-| Spread as % of mid | ≤ 10% (≤ 5% for anything under $1.00) |
+| Spread as % of mid | ≤ 10% (≤ 5% for anything under \$1.00) |
 | Zero / missing bid | Reject |
 | Crossed or locked quote (`bid ≥ ask`) | Reject the row and log it |
 | Strike distance from spot | \|log(K/S)\| ≤ 0.25, or \|delta\| ∈ [0.05, 0.95] |
 | DTE window | Per Section 5; reject anything < 3 DTE |
 | Max participation | ≤ 5% of that contract's daily volume, hard cap ~25 contracts early |
-| Underlying ADV | ≥ $50M/day |
+| Underlying ADV | ≥ \$50M/day |
 
 Log the *rejection reason counts*. If >30% of your signal dates are rejected for liquidity, the strategy's true capacity is far below what the equity curve implies and you should say so in Section 7.
 
@@ -1515,12 +1577,12 @@ Two strategies, 200 trades each:
 | | A: short 16Δ strangle, 45 DTE | B: long OTM call spread on signal |
 |---|---|---|
 | Win rate | 90% (180W / 20L) | 30% (60W / 140L) |
-| Avg win | +$120 | +$520 |
-| Avg loss | −$1,400 | −$180 |
-| Expectancy/trade | 0.9(120) − 0.1(1400) = **−$32** | 0.3(520) − 0.7(180) = **+$30** |
-| Capital at risk (CaR) | ~$3,500 margin | $180 debit |
+| Avg win | +\$120 | +\$520 |
+| Avg loss | −\$1,400 | −\$180 |
+| Expectancy/trade | 0.9(120) − 0.1(1400) = **−\$32** | 0.3(520) − 0.7(180) = **+\$30** |
+| Capital at risk (CaR) | ~\$3,500 margin | \$180 debit |
 | Expectancy / CaR | **−0.91%** | **+16.7%** |
-| Total P&L over 200 | −$6,400 | +$6,000 |
+| Total P&L over 200 | −\$6,400 | +\$6,000 |
 
 A has a 90% win rate and bleeds. B is wrong more than two-thirds of the time and compounds. Expectancy is not "the average of the good outcomes" — it is the probability-weighted sum over the *whole* distribution, and for options the tail carries most of the weight.
 
@@ -1788,21 +1850,21 @@ $Exposure = Δ_beta_book × S_SPY     # in dollars
 
 where `δ_i` is per-share option delta, `N_i` signed contracts, `β_i` the underlying's beta to SPY (use 1–2y weekly-return beta, refit monthly; do not use a 5y beta on a name whose business changed).
 
-**Vanna** = ∂vega/∂S = ∂delta/∂σ. Operationally: how much your vega changes when spot moves, and how much your delta changes when IV moves. It is the Greek that makes short-put books lethal. A short OTM put has positive vanna in the ∂vega/∂S sense: as spot falls toward the strike, the position's vega becomes *more* negative — you get shorter vol exactly as vol is exploding — and simultaneously its delta gets longer as IV rises, so you get longer the market into the decline. A book that is "only" −$500 vega at spot can be −$1,100 vega after a 7% drop. Any book with meaningful skew exposure (put spreads, ratios, jade lizards, short strangles) must track net vanna or its vega limit is fiction.
+**Vanna** = ∂vega/∂S = ∂delta/∂σ. Operationally: how much your vega changes when spot moves, and how much your delta changes when IV moves. It is the Greek that makes short-put books lethal. A short OTM put has positive vanna in the ∂vega/∂S sense: as spot falls toward the strike, the position's vega becomes *more* negative — you get shorter vol exactly as vol is exploding — and simultaneously its delta gets longer as IV rises, so you get longer the market into the decline. A book that is "only" −\$500 vega at spot can be −\$1,100 vega after a 7% drop. Any book with meaningful skew exposure (put spreads, ratios, jade lizards, short strangles) must track net vanna or its vega limit is fiction.
 
 **Charm** = ∂delta/∂t: delta decay per calendar day. A book flat at Friday's close can be materially directional at Monday's open with no price movement at all, because near-ATM options' deltas migrate toward 0 or ±1 as time passes. Charm is largest for near-the-money, short-dated positions and flips sign across the strike. Track it as "delta drift per day" and re-check it before every weekend and every holiday.
 
-**Hard limits, per $100,000 of account equity** (scale linearly):
+**Hard limits, per \$100,000 of account equity** (scale linearly):
 
 | Greek | Measured as | Limit | Justification |
 |---|---|---|---|
-| Beta-weighted delta | SPY-equivalent $ notional | ±$25,000 | A 5% index gap costs ±$1,250 = 1.25% of equity from delta alone. |
-| Net dollar gamma | Δ$ change per 1% SPY move | ±$5,000 | After a 5% move, delta has swung by 25% of equity — forces a re-hedge before delta breaches its own cap. |
-| Net vega | $ P&L per 1 vol point | ±$500 | A 10-point VIX spike = 5% of equity. Two such events in a quarter is survivable; three times this limit is not. |
+| Beta-weighted delta | SPY-equivalent $ notional | ±\$25,000 | A 5% index gap costs ±\$1,250 = 1.25% of equity from delta alone. |
+| Net dollar gamma | Δ$ change per 1% SPY move | ±\$5,000 | After a 5% move, delta has swung by 25% of equity — forces a re-hedge before delta breaches its own cap. |
+| Net vega | $ P&L per 1 vol point | ±\$500 | A 10-point VIX spike = 5% of equity. Two such events in a quarter is survivable; three times this limit is not. |
 | Gross vega | Σ \|bucket vega\| | $900 | Caps the calendar bet hidden inside a flat net (see 8.3). |
-| Net theta | $ per day | −$60 to +$150 | +$150/day = 0.15%/day. More positive theta than this means you are short more gamma than the gamma cap allows. |
-| Net vanna | Δvega per 1% down move | ±$60 | A −10% move then shifts vega by $600 — already above the vega cap, which is why the stress grid (8.7), not this line, is the binding constraint. |
-| Net charm | Δ$ delta drift per day | ±$2,500 | Over a 3-day weekend that is 7.5% of equity of unintended direction. |
+| Net theta | $ per day | −\$60 to +\$150 | +\$150/day = 0.15%/day. More positive theta than this means you are short more gamma than the gamma cap allows. |
+| Net vanna | Δvega per 1% down move | ±\$60 | A −10% move then shifts vega by \$600 — already above the vega cap, which is why the stress grid (8.7), not this line, is the binding constraint. |
+| Net charm | Δ$ delta drift per day | ±\$2,500 | Over a 3-day weekend that is 7.5% of equity of unintended direction. |
 
 ```python
 def aggregate_book(positions, spot, betas, spy_price, equity):
@@ -1827,17 +1889,17 @@ def aggregate_book(positions, spot, betas, spy_price, equity):
 
 Front vega and back vega are different risks wearing the same name. A 1-vol-point move in 5-day IV and a 1-vol-point move in 6-month IV are not equally likely, not equally persistent, and not equally hedgeable: front IV can move 15 points in a session; 6-month IV rarely moves 4. Netting them produces a number that is arithmetically valid and operationally worthless.
 
-Worse, a book showing **net zero vega** can be a large calendar-spread bet: −$800 of 8–30d vega against +$800 of 90d+ vega is a short-front/long-back term-structure position. In a vol spike the front IV rises far more than the back (term structure inverts), so that "flat" book takes a large loss. Bucket, then limit each bucket independently *and* limit the gross.
+Worse, a book showing **net zero vega** can be a large calendar-spread bet: −\$800 of 8–30d vega against +\$800 of 90d+ vega is a short-front/long-back term-structure position. In a vol spike the front IV rises far more than the back (term structure inverts), so that "flat" book takes a large loss. Bucket, then limit each bucket independently *and* limit the gross.
 
-**Bucketed limits, per $100,000 equity:**
+**Bucketed limits, per \$100,000 equity:**
 
 | Bucket | Net vega | Gross vega | Net gamma (Δ$/1%) | Note |
 |---|---|---|---|---|
-| 0–7 DTE | ±$120 | $200 | ±$1,500 | Vega is small; gamma and charm are enormous. Gamma is the binding limit here, not vega. |
-| 8–30 DTE | ±$300 | $450 | ±$3,000 | The core short-premium zone; most retail books over-concentrate here. |
-| 31–90 DTE | ±$350 | $500 | ±$2,000 | Most vega per dollar of margin, lower vol-of-vol. |
-| 90+ DTE | ±$250 | $350 | ±$800 | Slow-moving but exposed to rates, dividends, and term-structure repricing. |
-| **Total** | **±$500** | **$900** | **±$5,000** | Bucket nets may offset; the totals still bind. |
+| 0–7 DTE | ±\$120 | \$200 | ±\$1,500 | Vega is small; gamma and charm are enormous. Gamma is the binding limit here, not vega. |
+| 8–30 DTE | ±\$300 | \$450 | ±\$3,000 | The core short-premium zone; most retail books over-concentrate here. |
+| 31–90 DTE | ±\$350 | \$500 | ±\$2,000 | Most vega per dollar of margin, lower vol-of-vol. |
+| 90+ DTE | ±\$250 | \$350 | ±\$800 | Slow-moving but exposed to rates, dividends, and term-structure repricing. |
+| **Total** | **±\$500** | **\$900** | **±\$5,000** | Bucket nets may offset; the totals still bind. |
 
 Additional rule: **|net vega in any single bucket| ≤ 60% of total gross vega.** This prevents a book that satisfies every line above from being 100% a single-tenor bet.
 
@@ -1864,7 +1926,7 @@ Expect `rho_tail` to be 0.3–0.6 higher than `rho_full` for any two short-premi
 
 > **R = |position P&L| at the stress node: underlying moves −2σ over 5 days (σ = 20-day realized), with IV multiplied by 1.5, repriced leg-by-leg.**
 
-Size on that. A 16-delta SPY strangle with $180 of margin might show R = $1,400 at the stress node. The $1,400 is the real number.
+Size on that. A 16-delta SPY strangle with \$180 of margin might show R = \$1,400 at the stress node. The \$1,400 is the real number.
 
 **Kelly.** For a strategy with per-trade return mean μ and variance σ² (in units of R), the continuous Kelly fraction is:
 
@@ -1887,15 +1949,15 @@ contracts = floor( (r × Equity) / R_per_contract )
 
 with r = 0.5%–1.0% of equity for a confirmed strategy and 0.25% for a new one. This is the recommended default. It is invariant to expectancy misestimation, needs no variance estimate, and degrades gracefully.
 
-**Worked allocation — $250,000 account, three strategies.** Total portfolio risk budget = 6% of equity = **$15,000** of simultaneous stressed loss. Allocate by confidence-adjusted edge (see 8.6):
+**Worked allocation — \$250,000 account, three strategies.** Total portfolio risk budget = 6% of equity = **\$15,000** of simultaneous stressed loss. Allocate by confidence-adjusted edge (see 8.6):
 
 | Strategy | Backtest E[R] | Live trades | Confidence multiplier | Adj. edge | Raw weight | Capped weight | Risk $ | Max concurrent | Risk/trade |
 |---|---|---|---|---|---|---|---|---|---|
-| A — post-earnings strangle | 0.28 | 120 | 1.00 | 0.280 | 42.7% | 40.0% | $6,000 | 4 | $1,500 |
-| B — index put ratio on VIX spike | 0.45 | 0 | 0.50 | 0.225 | 34.4% | 36.0% | $5,400 | 2 | $2,700 |
-| C — pre-event long gamma | 0.20 | 30 | 0.75 | 0.150 | 22.9% | 24.0% | $3,600 | 3 | $1,200 |
+| A — post-earnings strangle | 0.28 | 120 | 1.00 | 0.280 | 42.7% | 40.0% | \$6,000 | 4 | \$1,500 |
+| B — index put ratio on VIX spike | 0.45 | 0 | 0.50 | 0.225 | 34.4% | 36.0% | \$5,400 | 2 | \$2,700 |
+| C — pre-event long gamma | 0.20 | 30 | 0.75 | 0.150 | 22.9% | 24.0% | \$3,600 | 3 | \$1,200 |
 
-Arithmetic: adjusted edges sum to 0.655; A = 0.280/0.655 = 42.7%. A single-strategy cap of 40% of the risk budget binds, so A is trimmed to 40% and the freed 2.7% is redistributed to B and C in their 0.225 : 0.150 ratio (60/40), giving 36.0% and 24.0%. Then B's per-trade risk is $5,400 / 2 = $2,700; if the stress-node loss of one B position is $900, B trades 3 contracts.
+Arithmetic: adjusted edges sum to 0.655; A = 0.280/0.655 = 42.7%. A single-strategy cap of 40% of the risk budget binds, so A is trimmed to 40% and the freed 2.7% is redistributed to B and C in their 0.225 : 0.150 ratio (60/40), giving 36.0% and 24.0%. Then B's per-trade risk is \$5,400 / 2 = \$2,700; if the stress-node loss of one B position is \$900, B trades 3 contracts.
 
 Note that B has the highest backtested edge and still gets less risk than A, because B has zero live confirmation. That is the intended behavior.
 
@@ -1920,7 +1982,7 @@ Run this every day after the close, on the actual open book, **by full repricing
 
 **Required grid:** underlying −10% / −5% / 0 / +5% / +10% × IV +100% / +50% / 0 / −25% (IV shocks applied multiplicatively to each leg's current IV, with the shock scaled down by tenor: full shock to 0–7d, 0.7× to 8–30d, 0.45× to 31–90d, 0.3× to 90d+).
 
-Example output for the $250,000 book above (P&L in $, % of equity in parentheses):
+Example output for the \$250,000 book above (P&L in $, % of equity in parentheses):
 
 | Spot \ IV | +100% | +50% | 0% | −25% |
 |---|---|---|---|---|
@@ -1965,10 +2027,10 @@ Required control: before every entry, net all open legs by `(underlying, expiry,
 | **Daily** (post-close, 15 min) | Aggregate Greek book vs. all limits; bucketed vega/gamma; full stress grid; margin ratio; cash buffer | Any Greek limit breached → flatten the excess next session. Worst stress node > 12% of equity → no new risk; > 20% → de-risk same day. Margin > 30% of equity → reduce. |
 | **Daily** (pre-open, 5 min) | Overnight charm drift; gap risk vs. beta-weighted delta; earnings/event calendar for every open underlying | Delta drift pushed beta-weighted delta out of range → hedge at the open with the most liquid instrument (SPY shares or futures), not by adjusting the option legs. |
 | **Weekly** | Per-strategy live E[R] vs. backtest; trade count vs. ramp tier; full and tail correlation matrix (if ≥60 obs); position netting audit across all strategies | Live E[R] < 0.5× backtest over trailing 30 trades → demote one tier. Tail correlation > 0.7 between the two largest strategies → cut the smaller allocation by half. Any unauthorized composite found → close it immediately, then fix the entry check. |
-| **Monthly** | Re-fit betas; re-derive risk budget weights from updated confidence multipliers; strategy drawdown vs. backtested worst; recompute account equity base for all per-$100k limits | Strategy drawdown > 1.5× backtested max → halve allocation. > 2× → suspend and re-run Sections 3–4 before any restart. |
+| **Monthly** | Re-fit betas; re-derive risk budget weights from updated confidence multipliers; strategy drawdown vs. backtested worst; recompute account equity base for all per-\$100k limits | Strategy drawdown > 1.5× backtested max → halve allocation. > 2× → suspend and re-run Sections 3–4 before any restart. |
 | **Quarterly** | Full re-validation of each strategy against Section 7's evaluation criteria; review whether the strategy count is still within the monitoring ceiling | Any strategy failing re-validation → retire it. Do not "give it more time"; the risk budget it holds has better uses. |
 
-One discipline underlies all of it: **the limits are computed from equity, and equity moves.** Recompute the per-$100k scaling monthly and after any single-day move exceeding 3% of the account. Limits that were set at last year's account size are the most common reason a book that "followed the rules" ends up twice as large as the rules allowed.
+One discipline underlies all of it: **the limits are computed from equity, and equity moves.** Recompute the per-\$100k scaling monthly and after any single-day move exceeding 3% of the account. Limits that were set at last year's account size are the most common reason a book that "followed the rules" ends up twice as large as the rules allowed.
 
 ---
 
@@ -2381,30 +2443,37 @@ Notation: `RV_n` = n-day close-to-close realized vol, annualized 252. Forward wi
 
 ### Prioritization
 
-| id | Family | Data cost | Effective N | Mechanism | Retail tradability | Priority |
+**Measured, not reasoned.** The counts below come from the §2.9b pre-flight run against free daily data (SPY 1993–2026; the VIX complex from 1990, 2006 or 2011 depending on series). Independent clusters — not raw events — are the sample that powers every statistic.
+
+| id | Family | Data cost | Raw events | **Indep. clusters** | Events/yr | Verdict |
 |---|---|---|---|---|---|---|
-| VT-03 | D | Free | High (100s) | Medium-high | High | **1** |
-| VRP-02 | A | Free | Medium | High | High | **2** |
-| DIR-01 | F | Free | Low-medium | Medium-high | High | **3** |
-| EV-01 | B | Mixed | High (1000s) | High | Medium-high | **4** |
-| VRP-01 | A | Free | Medium | High | High | 5 |
-| EV-02 | B | Free | Medium (~20/yr) | High | Medium | 6 |
-| VT-01 | D | Free | Medium | Medium | High | 7 |
-| MS-03 | C | Free | Medium (~280) | High | High | 8 |
-| VT-02 | D | Free | n/a (overlay) | Medium | High | 9 |
-| MS-01 | C | Free / paid OI | Medium (~390) | Medium | Medium | 10 |
-| SK-01 | E | Free proxy | Low | Medium | Medium | 11 |
-| MS-02 | C | Paid / thin | Unknown | Medium | Low | 12 |
-| SK-02 | E | Paid | Low | High | Very low | 13 |
+| EV-01 | B | Free dates, paid IV later | ~90/name | **~90/name × universe** | 4/name | **Run first** |
+| DIR-01 | F | Free | 268 | **211** | 8.0 | **Run first** |
+| EV-02 | B | Free calendar | ~270 FOMC / ~400 CPI | ~270 / ~400 | 8 / 12 | Run second |
+| VRP-01 | A | Free | 2,776 | 259 | 83 | Sample fine, effect likely thin |
+| VT-01 | D | Free | 486 | 166 | 31 | Viable; short history (2011+) |
+| MS-03 | C | Free | ~400 | ~400 | 12 | Viable |
+| MS-01 | C | Free / paid OI | ~394 | ~394 | 12 | Viable |
+| VT-03 | D | Free | 1,165 | **86** | 35 | **Demoted** — thin sample |
+| VRP-02 | A | Free | 3,761 | 217 | **188** | **Demoted** — see below |
+| VRP-02b | A | Free | 377 | 57 | 19 | Backwardation arm; marginal |
+| VT-02 | D | Free | n/a | overlay | — | Overlay only, never standalone |
+| SK-01 | E | Free proxy | Low | Low | — | Defer |
+| MS-02 | C | Paid / thin | Unknown | Unknown | — | Defer — untestable on available data |
+| SK-02 | E | Paid | Low | Low | — | Defer — untradeable retail |
 
-**Run first: VT-03, VRP-02, DIR-01, EV-01.**
+**Run first: EV-01, DIR-01.** Then EV-02.
 
-- **VT-03** — zero data cost, largest usable sample, one-number falsifier, and it yields the RV-forecasting module every other vol candidate needs.
-- **VRP-02** — strongest mechanism here; the gate is what separates a conditional premium from an unconditional short-vol book, and its result determines whether VRP-01 is worth pursuing.
-- **DIR-01** — free, genuinely two-sided so it cannot be talked into confirming itself, and it forces early confrontation with the effective-N problem.
-- **EV-01** — by far the largest event count and the only candidate with enough independent observations for conventional power; best target for a first paid-data purchase.
+- **EV-01 (earnings)** — the only candidate combining a large sample with an effect big enough to clear the bid/ask. Roughly 90 events per name back to 2002 on free data; across a liquid large-cap universe that is thousands of genuinely independent observations, since one company's report is unrelated to another's. The effect itself — implied vol collapsing once the announcement removes the uncertainty — is large and mechanical. This sits squarely in the middle band of the §2.9c viability screen.
+- **DIR-01 (vol-adjusted extreme moves)** — 268 events that resolve to **211 independent clusters**, a ratio near 1.0 because large moves are isolated point events rather than persistent states. The cleanest event-to-sample ratio of any candidate here, free, and genuinely two-sided so it cannot be talked into confirming itself.
+- **EV-02 (scheduled macro)** — moderate counts (~270 FOMC, ~400 CPI since 1993) but large, concentrated, precisely dated effects. Needs only a release calendar, which the Fed and BLS publish free.
 
-Defer SK-02 (untradeable retail) and MS-02 (untestable with available data). Keep VT-02 as an overlay on whichever VRP candidate survives, never standalone.
+**Two demotions, both produced by measurement rather than argument:**
+
+- **VT-03** was ranked first on reasoning and is **86 independent clusters** on inspection — 1,165 raw events collapsing roughly 14× because elevated realized vol persists for weeks at a time. It clears §3.8's minimum with almost no margin, and any subgroup or sub-period analysis will breach it.
+- **VRP-02** fires **188 days per year — about 75% of all sessions.** Contango is the market's default state, so this is not a trigger; it is a description of normal conditions. §7.7's benchmark test (does the signal beat the always-on version?) would very likely show it adds nothing over simply being short vol continuously. Test it as a *conditioning overlay* on VRP-01, never as a standalone entry.
+
+**The general lesson.** Both demotions came from arithmetic that took five minutes and no outcome data. State-based triggers ("vol is high", "the curve is steep") collapse 10–20× from raw events to independent clusters, because states persist. Point-event triggers (a gap, an earnings release, a scheduled announcement) barely collapse at all. **Prefer point events wherever the mechanism permits** — they buy an order of magnitude in effective sample for free.
 
 ### Anti-Patterns — Popular "Strategies" That Are Not Hypotheses
 
@@ -2443,13 +2512,16 @@ The sections above are organized by concept. This section is organized by **what
 
 ### 11.2 The first two weeks, concretely
 
-If you do nothing else, do this:
+If you do nothing else, do this — and note that **counting comes before specifying**. Steps 3 and 4 are the cheapest filter in the document and will re-order your candidate list before you have written a single spec.
 
-1. `git init` the structure from §1, add `pyproject.toml` with pinned `pandas`, `numpy`, `scipy`, `statsmodels`, `yfinance`, `pyarrow`, `py_vollib`, `pyyaml`, `pytest`.
-2. Write `data/loader.py` with the cached parquet fetch and the ingest assertions from §1.4. Pull SPY, QQQ, IWM, ^VIX, ^VIX9D, ^VIX3M daily history to disk.
-3. Write `research/eventstudy.py`: given trigger dates and a horizon, return the conditional outcome distribution, the unconditional baseline, and the permutation p-value. This is ~150 lines and it is the single highest-leverage file in the repo.
-4. Write three hypothesis specs from §10's prioritized list. Commit them. Note the commit hashes.
-5. Run stage 1 on all three. Expect all three to fail or be marginal. That is the correct outcome and it means your tests work.
+1. `git init` the structure from §1. Add `pyproject.toml` with pinned `pandas`, `numpy`, `scipy`, `statsmodels`, `yfinance`, `pyarrow`, `py_vollib`, `pyyaml`, `pytest`. Use `uv`; commit the lockfile.
+2. Write the ingest and loader with the §1.4 assertions — including the **feed-liveness** check, which is separate from historical gap detection. Pull SPY, QQQ, IWM and the VIX complex to parquet, with a manifest.
+3. **Run the §2.9b sample-size pre-flight on every candidate in §10 before writing any spec.** Count raw events and independent clusters. This takes minutes, touches no outcome, and burns no trial. Expect it to demote candidates you were confident about — that is the point.
+4. **Apply the §2.9c viability screen.** Discard anything whose effect is too small to clear an option bid/ask regardless of how good its statistics look, and anything whose trigger fires on more than roughly half of all sessions (that is a regime, not a signal).
+5. Write `research/eventstudy.py`: given trigger dates and a horizon, return the conditional outcome distribution, the unconditional baseline, and the permutation p-value. ~150 lines, and the single highest-leverage file in the repo.
+6. Agree a **trial budget per hypothesis** and wire it into the runner before the first backtest — mandatory if anything automated is executing runs (§4.2).
+7. Write specs only for candidates that survived steps 3–4. Commit them. Note the hashes.
+8. Run stage 1. Expect most to fail or come back marginal. That is the correct outcome and it means your tests work.
 
 ### 11.3 Definition of done, per hypothesis
 
